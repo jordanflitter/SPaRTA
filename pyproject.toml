@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparta"
+version = "0.1.0"
+description = "My Sparta project"
+authors = [
+    { name = "Your Name", email = "you@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+"numpy",
+"matplotlib",
+"scipy",
+"tqdm",
+"classy"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
