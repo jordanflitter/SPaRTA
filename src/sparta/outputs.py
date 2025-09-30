@@ -1,12 +1,11 @@
 "Module for defining the outputs of SPaRTA."
 
 import numpy as np
-import tqdm
 import matplotlib.pyplot as plt
+import tqdm
 from scipy.interpolate import interp1d, RectBivariateSpline
 from numpy.linalg import norm
-
-from . misc import calculate_rotation_matrix, compute_Lya_cross_section, inverse_mu_CDF, draw_from_voigt_distribution
+from . import misc
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -117,7 +116,7 @@ class COSMO_POINT_DATA():
         phi: float
             The angle in which the first axis is rotated (in radians).
         """
-        R_matrix = calculate_rotation_matrix(mu,phi)
+        R_matrix = misc.calculate_rotation_matrix(mu,phi)
         R_matrix_inv = np.linalg.inv(R_matrix)
         # Update rotation matrix
         self.rotation_matrix = self.rotation_matrix.dot(R_matrix)
@@ -261,7 +260,7 @@ class COSMO_POINT_DATA():
             else:
                 phi_curr = np.arctan2(self.position_vector[2],self.position_vector[1])
         # Rotate displacement vector so it will be measured now from the "grid's" frame
-        Delta_r_vector = calculate_rotation_matrix(mu_curr,phi_curr).dot(Delta_r_vector)  # Mpc
+        Delta_r_vector = misc.calculate_rotation_matrix(mu_curr,phi_curr).dot(Delta_r_vector)  # Mpc
         # Update position vector
         self.position_vector += Delta_r_vector # Mpc
         # Sanity check: the norm of the position vector, i.e. the distance of
@@ -279,9 +278,9 @@ class COSMO_POINT_DATA():
         """
         # Compute cross section
         if self.sim_params.INCLUDE_TEMPERATURE:
-            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = misc.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
         else:
-            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = misc.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
         # Number density of neutral hydrogen
         # Note we assume homogeneity here
         n_HI = self.cosmo_params.n_H_z0*self.cosmo_params.x_HI*(1.+self.redshift)**3 # m^-3
@@ -615,8 +614,8 @@ class ALL_PHOTONS_DATA():
         in arXiv: 2311.03447.
         """
         
-        self.mu_table_core = inverse_mu_CDF(11./24.,3./24.)
-        self.mu_table_wing = inverse_mu_CDF(3./8.,3./8.)
+        self.mu_table_core = misc.inverse_mu_CDF(11./24.,3./24.)
+        self.mu_table_wing = misc.inverse_mu_CDF(3./8.,3./8.)
     
     def make_interpolation_tables(self):
         """
@@ -911,7 +910,7 @@ class ALL_PHOTONS_DATA():
                     # Also note that we only need two components for the thermal velocity, not three
                     v_thermal_perp = np.random.normal(scale=self.Delta_nu/np.sqrt(2.)) # dimensionless
                     if self.cosmo_params.T > 0.:
-                        v_thermal_parallel = self.Delta_nu*draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
+                        v_thermal_parallel = self.Delta_nu * misc.draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
                     else:
                         v_thermal_parallel = 0.
                     # Update frequency according to Eq. (23) in arXiv: 2311.03447

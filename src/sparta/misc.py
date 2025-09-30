@@ -1,7 +1,6 @@
 "Module for miscellaneous functions of SPaRTA."
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import scipy.integrate as intg
 from scipy.special import voigt_profile
@@ -273,74 +272,3 @@ def compute_correlation_function(r,cosmo_params,kind='density',normalization=Tru
         xi /= intg.simpson(P_R*transfer*transfer/k_arr, x=k_arr) # dimensionless
     # Return output
     return xi
-
-#%% Define some helpful functions for plotting (with no data from simulation)
-
-def plot_cross_section(T=0.,
-                       nu_min=None,
-                       nu_max=1.e-3,
-                       velocity=0.,
-                       flag='LORENTZIAN',
-                       ax=None,
-                       **kwargs):
-    """
-    Plot Lyman alpha cross section as a function of frequency.
-    
-    Parameters
-    ----------
-    T: float, optional
-        Temperature of the IGM (in Kelvin degrees)
-    nu_min: float, optional
-        Minimum frequency for which the cross-section will be displayed,
-        with respect to the center of the line, in units of Lyman alpha 
-        frequency.
-    nu_max: float, optional
-        Maximum frequency for which the cross-section will be displayed,
-        with respect to the center of the line, in units of Lyman alpha 
-        frequency.
-    velocity: float, optional
-        The relative velocity of the interacting hydrogen atom, in units of c.
-        The relative velocity causes a Doppler shift in the profile.
-    flag: string, optional
-        Type of cross-section to be used. Options are (default is 'Lorenzian'):
-            - 'LORENTZIAN': A simple Lorentzian profile is used when T=0. 
-            For a finite temperature, the Lorentzian profile is convolved 
-            with a Gaussian to yield to Voigt profile.
-            - 'PEEBLES': Cross-section from Peebles, P.J.E. (1993) Principles 
-            of Physical Cosmology (see also Eq. 49 in arXiv: 1704.03416).
-            Only works for T=0.
-    ax: Axes, optional
-        The matplotlib Axes object on which to plot. Otherwise, created.
-    kwargs:
-        Optional keywords to pass to :func:`maplotlib.plot`.
-    
-    Returns
-    -------
-    fig, ax:
-        figure and axis objects from matplotlib.
-    """
-    
-    if nu_min is None:
-        nu_min = -nu_max
-        nu_array_zero = 1. + np.linspace(nu_min,nu_max,1000)
-    else:
-        nu_array_zero = 1. + np.logspace(np.log10(nu_min),np.log10(nu_max),1000)
-    nu_array = nu_array_zero/(1.-velocity)
-    sigma_array = np.array([compute_Lya_cross_section(nu,T,flag=flag) for nu in nu_array]) # m^2
-    if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-    else:
-        fig = ax.figure
-    # Multiply by 1e4 to show cross-section in cm^2
-    ax.semilogy(nu_array_zero-1.,1e4*sigma_array,**kwargs)
-    if nu_min > 0:
-        ax.set_xscale('log')
-    ax.set_xlim([nu_min,nu_max])
-    ax.set_xlabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
-    ax.set_ylabel('$\\sigma_\\alpha\\,[\\mathrm{cm^2}]$',fontsize=25)
-    ax.xaxis.set_tick_params(labelsize=20)
-    ax.yaxis.set_tick_params(labelsize=20)
-    if "label" in kwargs:
-        ax.legend(fontsize=20)
-    # Return output
-    return fig, ax

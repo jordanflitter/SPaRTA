@@ -1,12 +1,12 @@
 "Module for post processing the outputs of SPaRTA."
 
 import numpy as np
-import matplotlib.pyplot as plt
 from numpy.linalg import norm
 import scipy.integrate as intg
 from scipy.optimize import curve_fit
 from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
+from . import plotting
 
 #%% Class for collecting data from the simulation
 
@@ -117,10 +117,12 @@ class SIM_DATA():
         self.x_list = x_list
         self.y_list = y_list
     
-    def plot_scatter_all_photons(self,
-                                 x_axis='distance',
-                                 ax = None,
-                                 **kwargs):
+    def plot_scatter_all_photons(
+        self,
+        x_axis='distance',
+        ax = None,
+        **kwargs
+        ):
         
         """
         Plot the scatter of simulation data points as a function
@@ -146,34 +148,12 @@ class SIM_DATA():
             figure and axis objects from matplotlib.
         """
         
-        # Check input
-        if not (x_axis == 'distance' or x_axis == 'redshift'):
-            raise ValueError("'x_axis' can only be 'distance' or 'redshift'.")
-        if x_axis == 'distance':
-            x_list = self.x_list
-        else:
-            x_list = np.array([self.cosmo_params.R_SL_inverse(self.z_abs,x_em*self.cosmo_params.r_star(self.z_abs)) for x_em in self.x_list])
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        # Plot scatter of the data
-        ax.scatter(x_list,self.y_list,**kwargs)
-        # Prettify plot
-        if self.quantity == 'distance':
-            ax.set_ylabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
-        elif self.quantity == 'velocity':
-            ax.set_ylabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if x_axis == 'distance':
-            ax.set_xlabel('$R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})/r_\\star(z_\\mathrm{abs})$',fontsize=25)
-        else:
-            ax.set_xlabel('$z_\\mathrm{em}$',fontsize=25)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_scatter_all_photons(
+            sim_data = self,
+            x_axis = x_axis,
+            ax = ax,
+            **kwargs
+        )
     
     def get_histogram(self,
                       x_res = 0.1,
@@ -296,34 +276,13 @@ class SIM_DATA():
         
         """
         
-        dist_params, data_lims = self.find_fitting_params(x_em=x_em,x_res=x_res)
-        if self.quantity == 'distance':
-            (alpha, beta) = dist_params
-            x_array = np.linspace(0.,1.,1000)
-        elif self.quantity == 'velocity':
-            (mu, sigma) = dist_params
-            x_array = np.linspace(data_lims[0],data_lims[1],1000)
-        # Prepare figure
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        # Plot the analytical fit
-        if self.quantity == 'distance':
-            ax.plot(x_array, beta_dist.pdf(x_array,alpha,beta),**kwargs)
-            # Prettify plot
-            ax.set_ylabel('Radial distribution',fontsize=25)
-            ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
-        elif self.quantity == 'velocity':
-            ax.plot(x_array, norm_dist.pdf(x_array,mu,sigma), **kwargs)
-            ax.set_ylabel('Velocity distribution',fontsize=25)
-            ax.set_xlabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_fit(
+            sim_data = self,
+            x_em = x_em,
+            x_res = x_res,
+            ax = ax,
+            **kwargs
+        )
 
 #%% Class for containing histogram data
 
@@ -401,70 +360,19 @@ class HISTOGRAM_DATA():
             figure and axis objects from matplotlib.
         """
         
-        # Check input
-        if x_em == None and z_em == None:
-            raise ValueError("Either 'x_em' or 'z_em' must be specified.")
-        if (not x_em == None) and (not z_em == None):
-            raise ValueError("'x_em' and 'z_em' cannot be both specified. Choose one of them.")
-        # Find 1D data that corresponds to input
-        if not z_em == None:
-            x_em = self.cosmo_params.R_SL(self.z_abs,z_em)/self.cosmo_params.r_star(self.z_abs)
-        if x_em > np.max(self.x_bins):
-            raise ValueError(f"Requested input corresponds to x_em={x_em}, but maximum x_em in histogram data is {np.max(self.x_bins)}")
-        elif x_em < np.min(self.x_bins):
-            raise ValueError(f"Requested input corresponds to x_em={x_em}, but minimum x_em in histogram data is {np.min(self.x_bins)}")
-        else:
-            x_em_arg = np.argmin(np.abs(self.x_bins-x_em))
-        # Extract 1D distribution
-        f_array = self.H_matrix[x_em_arg,:] # dimensionless
-        # Prepare figure
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        if not "align" in kwargs.keys():
-            kwargs["align"] = "edge"
-        if not "edgecolor" in kwargs.keys():
-            kwargs["edgecolor"] = "black"
-        # Find edges
-        dr = np.diff(self.y_bins)[0]
-        edges = np.concatenate((np.array([self.y_bins[0]-dr/2.]),
-                                (self.y_bins[1:]+self.y_bins[:-1])/2.,
-                                np.array([self.y_bins[-1]+dr/2.])))
-        # Plot 1D histogram of the data, normalized to 1
-        if self.quantity == 'distance':
-            r_array = self.y_bins # dimensionless
-            # Ensure that the bin at 0 and 1 are empty
-            f_array[1] += f_array[0]
-            f_array[0] = 0.
-            if not self.sim_params.STRAIGHT_LINE:
-                f_array[-2] += f_array[-1]
-                f_array[-1] = 0.
-            # Normalize
-            f_array /= intg.simpson(f_array, x=r_array) # dimensionless
-            # Plot!
-            ax.bar(edges[:-1],f_array,width=np.diff(edges),**kwargs)
-            # Prettify plot
-            ax.set_ylabel('Radial distribution',fontsize=25)
-            ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
-        elif self.quantity == 'velocity':
-            v_array = self.y_bins # dimensionless
-            # Normalize
-            f_array /= intg.simpson(f_array, x=v_array) # dimensionless
-            # Plot!
-            ax.bar(edges[:-1],f_array,width=np.diff(edges),**kwargs)
-            ax.set_ylabel('Velocity distribution',fontsize=25)
-            ax.set_xlabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_histogram(
+            histogram_data = self,
+            z_em = z_em,
+            x_em = x_em,
+            ax = ax,
+            **kwargs
+        )
     
-    def fit_histogram(self,
-                      z_em=None,
-                      x_em=None):
+    def fit_histogram(
+        self,
+        z_em=None,
+        x_em=None
+    ):
         
         """
         Fit the 1D histogram at z_em to an analytical function.
@@ -562,11 +470,13 @@ class HISTOGRAM_DATA():
         # Return output
         return f_array, self.y_bins, dist_params
     
-    def plot_fit(self,
-                 z_em=None,
-                 x_em=None,
-                 ax = None,
-                 **kwargs):
+    def plot_histogram_fit(
+        self,
+        z_em=None,
+        x_em=None,
+        ax = None,
+        **kwargs
+    ):
         
         """
         Plot the analytical fit to the 1D histogram at z_em.
@@ -591,42 +501,10 @@ class HISTOGRAM_DATA():
             figure and axis objects from matplotlib.
         
         """
-        # Check input
-        if x_em == None and z_em == None:
-            raise ValueError("Either 'x_em' or 'z_em' must be specified.")
-        if (not x_em == None) and (not z_em == None):
-            raise ValueError("'x_em' and 'z_em' cannot be both specified. Choose one of them.")
-        # Find 1D data that corresponds to input z_em
-        if not z_em == None:
-            if self.quantity == 'distance':
-                f_array, x_array, (alpha, beta) = self.fit_histogram(z_em=z_em)
-            else:
-                f_array, x_array, (mu, sigma) = self.fit_histogram(z_em=z_em)
-        else:
-            if self.quantity == 'distance':
-                f_array, x_array, (alpha, beta) = self.fit_histogram(x_em=x_em)
-            else:
-                f_array, x_array, (mu, sigma) = self.fit_histogram(x_em=x_em)
-        # Get more samples to draw nice functions
-        x_array_new = np.linspace(x_array[0],x_array[-1],1000)
-        # Prepare figure
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        # Plot the analytical fit
-        if self.quantity == 'distance':
-            ax.plot(x_array_new, beta_dist.pdf(x_array_new,alpha,beta),**kwargs)
-            # Prettify plot
-            ax.set_ylabel('Radial distribution',fontsize=25)
-            ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
-        elif self.quantity == 'velocity':
-            ax.plot(x_array_new, norm_dist.pdf(x_array_new,mu,sigma), **kwargs)
-            ax.set_ylabel('Velocity distribution',fontsize=25)
-            ax.set_xlabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_histogram_fit(
+            histogram_data = self,
+            z_em = z_em,
+            x_em = x_em,
+            ax = ax,
+            **kwargs
+        )

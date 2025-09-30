@@ -39,6 +39,8 @@ from .post_processing import (
 )
 from . misc import(
     compute_Lya_cross_section,
-    compute_correlation_function,
+    compute_correlation_function
+)
+from . plotting import(
     plot_cross_section
 )

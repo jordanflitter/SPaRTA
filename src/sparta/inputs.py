@@ -2,7 +2,6 @@
 
 import numpy as np
 import scipy.integrate as intg
-
 from classy import Class
 from scipy.interpolate import interp1d
 
