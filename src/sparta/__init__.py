@@ -37,8 +37,10 @@ from .post_processing import (
     SIM_DATA,
     HISTOGRAM_DATA
 )
+from . cosmology import(
+    compute_Lya_cross_section
+)
 from . misc import(
-    compute_Lya_cross_section,
     compute_correlation_function
 )
 from . plotting import(

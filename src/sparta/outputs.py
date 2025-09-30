@@ -4,8 +4,7 @@ import numpy as np
 import tqdm
 from scipy.interpolate import interp1d, RectBivariateSpline
 from numpy.linalg import norm
-from . import misc
-from . import plotting
+from . import cosmology, misc, plotting
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -278,13 +277,13 @@ class COSMO_POINT_DATA():
         """
         # Compute cross section
         if self.sim_params.INCLUDE_TEMPERATURE:
-            sigma_Lya = misc.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = cosmology.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
         else:
-            sigma_Lya = misc.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = cosmology.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
         # Number density of neutral hydrogen
         # Note we assume homogeneity here
         n_HI = self.cosmo_params.n_H_z0*self.cosmo_params.x_HI*(1.+self.redshift)**3 # m^-3
-        # This the integrand for the tau integral.
+        # This is the integrand for the tau integral.
         # We divide by (1+z) as "L" here is comoving distance (not proper)
         dtau_2_dL = n_HI*sigma_Lya/(1.+self.redshift) # 1/m
         return dtau_2_dL
