@@ -1,11 +1,11 @@
 "Module for defining the outputs of SPaRTA."
 
 import numpy as np
-import matplotlib.pyplot as plt
 import tqdm
 from scipy.interpolate import interp1d, RectBivariateSpline
 from numpy.linalg import norm
 from . import misc
+from . import plotting
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -289,7 +289,6 @@ class COSMO_POINT_DATA():
         dtau_2_dL = n_HI*sigma_Lya/(1.+self.redshift) # 1/m
         return dtau_2_dL
 
-
 #%% Class for managing a single photon data
 
 class PHOTON_POINTS_DATA():
@@ -384,10 +383,12 @@ class PHOTON_POINTS_DATA():
         return z_ini_data
         
         
-    def plot_photon_trajectory(self,
-                               scale=5.,
-                               ax = None,
-                               **kwargs):
+    def plot_photon_trajectory(
+        self,
+        scale=5.,
+        ax = None,
+        **kwargs
+    ):
         """
         Plot the trajectory of this photon.
         
@@ -406,42 +407,18 @@ class PHOTON_POINTS_DATA():
             figure and axis objects from matplotlib.
         """
         
-        x_list = []
-        y_list = []
-        z_list = []
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8), subplot_kw=dict(projection='3d'))
-        else:
-            fig = ax.figure
-        for i in range(len(self.points_data)):
-            z_i_data = self.points_data[i]
-            x_list.append(z_i_data.position_vector[0])
-            y_list.append(z_i_data.position_vector[1])
-            z_list.append(z_i_data.position_vector[2])
-        x_array = np.array(x_list)
-        y_array = np.array(y_list)
-        z_array = np.array(z_list)
-        ax.plot(x_array,y_array,z_array,**kwargs)
-        ax.set_xlabel('$X\\,[\\mathrm{Mpc}]$',fontsize=15)
-        ax.set_ylabel('$Y\\,[\\mathrm{Mpc}]$',fontsize=15)
-        ax.set_zlabel('$Z\\,[\\mathrm{Mpc}]$',fontsize=15)
-        ax.set_xlim([-scale,scale])
-        ax.set_ylim([-scale,scale])
-        ax.set_zlim([-scale,scale])
-        ax.set_xticks(np.arange(-scale,scale+scale/5.,scale/5.))
-        ax.set_yticks(np.arange(-scale,scale+scale/5.,scale/5.))
-        ax.set_zticks(np.arange(-scale,scale+scale/5.,scale/5.))
-        ax.xaxis.set_tick_params(labelsize=12)
-        ax.yaxis.set_tick_params(labelsize=12)
-        ax.zaxis.set_tick_params(labelsize=12)
-        if "label" in kwargs:
-            ax.legend(fontsize=15)
-        # Return output
-        return fig, ax
+        return plotting.plot_photon_trajectory(
+            photon_points_data = self,
+            scale = scale,
+            ax = ax,
+            **kwargs
+        )
     
-    def plot_apparent_frequency(self,
-                                ax = None,
-                                **kwargs):
+    def plot_apparent_frequency(
+        self,
+        ax = None,
+        **kwargs
+    ):
         """
         Plot the evolution of the apparent frequncy of this photon 
         in the gas frame.
@@ -459,37 +436,18 @@ class PHOTON_POINTS_DATA():
             figure and axis objects from matplotlib.
         """
         
-        z_list = []
-        nu_list = []
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        for i in range(len(self.points_data)):
-            z_i_data = self.points_data[i]
-            z_list.append(z_i_data.redshift)
-            nu_list.append(z_i_data.apparent_frequency)
-        z_array = np.array(z_list)
-        nu_array = np.array(nu_list)
-        ax.loglog((z_array-self.z_abs)/(1.+self.z_abs),nu_array-1.,**kwargs)
-        # Add a Lymann beta horizontal dashed line
-        ax.axhline(y=Lyman_beta-1.,ls='--',color='k')
-        # Add a diffusion horizontal dotted line
-        ax.axhline(y=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
-        ax.axvline(x=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
-        ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
-        ax.set_ylabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_apparent_frequency(
+            photon_points_data = self,
+            ax = ax,
+            **kwargs
+        )
 
-    def plot_distance(self,
-                      intermediate_pts = True,
-                      ax = None,
-                      **kwargs):
+    def plot_distance(
+        self,
+        intermediate_pts = True,
+        ax = None,
+        **kwargs
+    ):
         """
         Plot the distance evolution of this photon with respect to the 
         absorption point.
@@ -511,46 +469,12 @@ class PHOTON_POINTS_DATA():
             figure and axis objects from matplotlib.
         """
         
-        z_list = []
-        r_list = []
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        else:
-            fig = ax.figure
-        for i in range(len(self.points_data)):
-            z_i_data = self.points_data[i]
-            z_list.append(z_i_data.redshift)
-            r_list.append(norm(z_i_data.position_vector)) # Mpc
-            if intermediate_pts:
-                if i < len(self.points_data)-1:
-                    z_i_plus1_data = self.points_data[i+1]
-                    z_i_plus1 = z_i_plus1_data.redshift
-                    z_i = z_i_data.redshift
-                    # N is the number of grid points between z_i and z_{i+1}
-                    N = int(self.cosmo_params.R_SL(z_i,z_i_plus1)/self.sim_params.Delta_L)
-                    for n in np.arange(1,N):
-                        z_prime = self.cosmo_params.R_SL_inverse(z_i,n*self.sim_params.Delta_L)
-                        z_list.append(z_prime)
-                        w = n/N
-                        z_prime_position_vector = (1.-w)*z_i_data.position_vector # Mpc
-                        z_prime_position_vector += w*z_i_plus1_data.position_vector # Mpc
-                        r_list.append(norm(z_prime_position_vector)) # Mpc
-        z_array = np.array(z_list)
-        r_array = np.array(r_list)
-        ax.loglog((z_array-self.z_abs)/(1.+self.z_abs),r_array,**kwargs)
-        # Add a Lymann beta horizontal dashed line
-        ax.axhline(y=self.cosmo_params.R_SL(self.z_abs,(1.+self.z_abs)*Lyman_beta-1.),ls='--',color='k')
-        # Add a diffusion horizontal dotted line
-        ax.axhline(y=self.cosmo_params.r_star(self.z_abs),ls=':',color='k')
-        ax.axvline(x=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
-        ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
-        ax.set_ylabel('Distance [Mpc]',fontsize=25)
-        ax.xaxis.set_tick_params(labelsize=20)
-        ax.yaxis.set_tick_params(labelsize=20)
-        if "label" in kwargs:
-            ax.legend(fontsize=20)
-        # Return output
-        return fig, ax
+        return plotting.plot_distance(
+            photon_points_data = self,
+            intermediate_pts = intermediate_pts,
+            ax = ax,
+            **kwargs
+        )
 
 #%% Class for managing data of all photons in the simulation
 
@@ -648,10 +572,12 @@ class ALL_PHOTONS_DATA():
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
                     if zj > zi and zj_ind < zi_ind + 10:
-                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = self.cosmo_params.compute_2_point_correlation(z1=zi,
-                                                                                                                                        z2=zj,
-                                                                                                                                        v1_1D_rms=rms_array[zi_ind],
-                                                                                                                                        v2_1D_rms=rms_array[zj_ind])            
+                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = self.cosmo_params.compute_2_point_correlation(
+                            z1=zi,
+                            z2=zj,
+                            v1_1D_rms=rms_array[zi_ind],
+                            v2_1D_rms=rms_array[zj_ind]
+                        )            
             # Symmetrize matrices and put 1 on the diagonal
             rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
             rho_perp_matrix += rho_perp_matrix.T + np.eye(len(z_array))
