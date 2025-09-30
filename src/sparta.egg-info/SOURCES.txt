@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-src/sparta/Multiple_scattering.py
-src/sparta/__init__.py
-src/sparta.egg-info/PKG-INFO
-src/sparta.egg-info/SOURCES.txt
-src/sparta.egg-info/dependency_links.txt
-src/sparta.egg-info/requires.txt
-src/sparta.egg-info/top_level.txt
