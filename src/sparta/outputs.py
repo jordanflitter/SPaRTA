@@ -1,0 +1,948 @@
+"Module for defining the outputs of SPaRTA."
+
+import numpy as np
+import tqdm
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d, RectBivariateSpline
+from numpy.linalg import norm
+
+from . misc import calculate_rotation_matrix, compute_Lya_cross_section, inverse_mu_CDF, draw_from_voigt_distribution
+
+#%% Define some global parameters
+Mpc_to_meter = 3.085677581282e22
+c = 2.99792458e8 # Speed of light in m/sec
+h_P = 6.62606896e-34 # Planck Constant in J*sec
+k_B = 1.3806504e-23 # Boltzmann Constant in J/K
+nu_Lya = 2.47e15 # Lya frequency in Hz
+A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to the 1s state in Hz
+m_H = 1.6735575e-27 # Hydrogen atom mass in kg
+A_alpha_dimensionless = A_alpha/nu_Lya
+Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
+
+#%% Class for managing a cosmological point in spacetime in which the photon has passed
+
+class COSMO_POINT_DATA():
+    """
+    Class for managing a cosmological point in spacetime in which the photon 
+    has passed.
+    
+    Parameters
+    ----------
+    redshift: float
+        Redshift of the point.
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+        Needs to be passed after CLASS was run.
+    sim_params: :class:`~SIM_PARAMS`
+        The simulation parameters.
+    velocity_vector: numpy array (3X1), optional
+        Bulk peculiar velocity vector at the point, in units of c.
+            - The first component is parallel to the photon trajectory (n_||)
+            - The second component is perpendicular to the photon trajectory (n_perp)
+            - The third component is perpendicular to the above (n_cross)
+    position_vector: numpy array (3X1), optional
+        Position vector of the point, with respect to absorption point, 
+        in units of Mpc. Unlike the velocity vector, the components of the 
+        position vector are given in a fixed comoving frame.
+    rotation_matrix: numpy array (3X3), optional
+        The total rotation matrix who's inverse can be used to transform
+        the velocity vector in z_abs to the same coordinate system of the point.
+    apparent_frequency: float, optional
+        The dimensionless frequency of the photon (in units of Lyman alpha frequency).
+    velocity_1D_rms: float, optional
+        The smoothed 1D velocity RMS, given in units of c.
+    """
+    
+    def __init__(self,
+                 redshift,
+                 cosmo_params,
+                 sim_params,
+                 velocity_vector = None,
+                 position_vector = np.zeros(3),
+                 rotation_matrix = np.eye(3),
+                 apparent_frequency = None,
+                 velocity_1D_rms = None
+    ):
+        self.redshift = redshift
+        self.cosmo_params = cosmo_params
+        self.sim_params = sim_params
+        self.velocity_vector = velocity_vector
+        self.position_vector = position_vector
+        self.rotation_matrix = rotation_matrix
+        self.apparent_frequency = apparent_frequency
+        self.velocity_1D_rms = velocity_1D_rms
+    
+    def copy(self):
+        """
+        Copy the content of this point to another object.
+        
+        Returns
+        -------
+        :class:`~COSMO_POINT_DATA`
+            A copy of the content of this point
+        """
+        
+        if self.sim_params.INCLUDE_VELOCITIES:
+            velocity_vector = self.velocity_vector.copy(),
+            rotation_matrix = self.rotation_matrix.copy(),
+            velocity_1D_rms = self.velocity_1D_rms
+            # This is weird, for some reason those variables are a
+            # tuple of a single element. I'm making it an array below
+            velocity_vector = velocity_vector[0]
+            rotation_matrix = rotation_matrix[0]
+        else:
+            velocity_vector = None,
+            rotation_matrix = None,
+            velocity_1D_rms = None
+
+        # Return output
+        return COSMO_POINT_DATA(redshift=self.redshift,
+                                cosmo_params=self.cosmo_params,
+                                sim_params=self.sim_params,
+                                velocity_vector=velocity_vector,
+                                position_vector=self.position_vector.copy(),
+                                rotation_matrix=rotation_matrix,
+                                apparent_frequency=self.apparent_frequency,
+                                velocity_1D_rms=velocity_1D_rms
+                                )
+    
+    def rotate(self,mu,phi):
+        """
+        Rotate the coordinate system of the point by mu=cos(theta) and phi. 
+        
+        Parameters
+        ----------
+        mu: float
+            The cosine of the angle in which the third axis is rotated.
+        phi: float
+            The angle in which the first axis is rotated (in radians).
+        """
+        R_matrix = calculate_rotation_matrix(mu,phi)
+        R_matrix_inv = np.linalg.inv(R_matrix)
+        # Update rotation matrix
+        self.rotation_matrix = self.rotation_matrix.dot(R_matrix)
+        # Rotate velocity vector
+        # Note: why do I rotate by the inverse matrix? This is because:
+        #   (1) The velocity vector is rotated passively (the vector remains the same,
+        #       it is the coordinate system that was transformed in order to align the
+        #       first component with the photon's new direction), 
+        #       while the displacement vector (see update_position below) is rotated 
+        #       actively (it is the dispalcement vector that is rotating, not the 
+        #       coordinate system) in order to bring the photon to its correct position.
+        #   (2) The n'th rotation matrix for the n'th point is R_tot = R1*R2*...*Rn.
+        #       Thus, the inverse matrix is R_tot_inv = Rn_inv*...R1_inv.
+        #       At the n'th point, the velocity vector is rotated by R_tot_inv compared
+        #       to the fixed grid's frame. Thus, we need to multiply it by R_tot
+        #       in order to compare it with the velocity vector at z_abs.
+        #       This is exactly what we do when we collect the data in SIM_DATA() below.
+        self.velocity_vector = R_matrix_inv.dot(self.velocity_vector) # dimensionless
+    
+    def compute_RMS(self):
+        """
+        Compute the smoothed 1D velocity rms for this point. 
+        Interpolation is performed if USE_INTERPOLATION_TABLES = True.
+        """
+        # Interpolate!
+        if self.sim_params.USE_INTERPOLATION_TABLES:
+            try:
+                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.redshift)
+            except ValueError:
+                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1])
+        # Integrate!
+        else:
+            self.velocity_1D_rms = self.cosmo_params.compute_RMS(z=self.redshift,
+                                                                 r=self.sim_params.Delta_L)
+        
+    def compute_2_point_correlation(self,z1_data,r=None):
+        """
+        Compute velocity correlation coefficients for parallel and 
+        perpendicular components, between the current point and the one 
+        defined by z1_data. Interpolation is performed if 
+        USE_INTERPOLATION_TABLES = True.
+        
+        Parameters
+        ----------
+        z1_data: :class:`~COSMO_POINT_DATA`
+            The data of the previous point.
+        r: float, optional
+            Comoving distance between the two points, in Mpc.
+        """
+        if not self.sim_params.NO_CORRELATIONS:
+            # Interpolate!
+            if self.sim_params.USE_INTERPOLATION_TABLES:
+                self.rho_v_parallel = self.cosmo_params.interpolate_rho_parallel(self.redshift,z1_data.redshift)[0,0]
+                self.rho_v_perp = self.cosmo_params.interpolate_rho_perp(self.redshift,z1_data.redshift)[0,0]
+                # Sanity check: -1 <= rho <= 1
+                if self.rho_v_parallel**2 > 1.:
+                    print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_parallel is rho={self.rho_v_parallel}")
+                if self.rho_v_perp**2 > 1.:
+                    print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_perp is rho={self.rho_v_perp}")
+            # Integrate!
+            else:
+                self.rho_v_parallel, self.rho_v_perp = self.cosmo_params.compute_2_point_correlation(z1=z1_data.redshift,
+                                                                                                    z2=self.redshift,
+                                                                                                    v1_1D_rms=z1_data.velocity_1D_rms,
+                                                                                                    v2_1D_rms=self.velocity_1D_rms)
+        else:
+            self.rho_v_parallel = 0.
+            self.rho_v_perp = 0.
+                
+    
+    def draw_conditional_velocity_vector(self,z1_data):
+        """
+        Draw a conditional velocity vector for this point based on the 
+        velocity vector of the previous sample.
+        
+        Parameters
+        ----------
+        z1_data: :class:`~COSMO_POINT_DATA`
+            The data of the previous point.
+        
+        """
+        # Compute the 2-point correlation coefficients for the parallel and 
+        # perpendicular components of the velocity field.
+        self.compute_2_point_correlation(z1_data)
+        # Comopute the conditional mean and variance for the current velocity
+        # components, based on the previous point.
+        # For two Gaussian random variables X and Y, the conditional mean (mu) 
+        # and variance (sigma^2) of X given Y=y are
+        #
+        #                   mu_X|Y = mu_X + rho_XY*sigma_X/sigma_Y*(y-mu_y)
+        #
+        #                   sigma_X|Y = sigma_X*sqrt(1-rho_XY^2)
+        #
+        # This is what the following lines do (in our case, mu_X=mu_Y=0)
+        mu_parallel = (self.velocity_1D_rms/z1_data.velocity_1D_rms
+                       *self.rho_v_parallel*z1_data.velocity_vector[0]) # dimensionless
+        mu_perp = (self.velocity_1D_rms/z1_data.velocity_1D_rms
+                       *self.rho_v_perp*z1_data.velocity_vector[1]) # dimensionless
+        mu_cross = (self.velocity_1D_rms/z1_data.velocity_1D_rms
+                       *self.rho_v_perp*z1_data.velocity_vector[2]) # dimensionless
+        sigma_parallel = self.velocity_1D_rms*np.sqrt(1.-self.rho_v_parallel**2) # dimensionless
+        sigma_perp = self.velocity_1D_rms*np.sqrt(1.-self.rho_v_perp**2) # dimensionless
+        sigma_cross = self.velocity_1D_rms*np.sqrt(1.-self.rho_v_perp**2) # dimensionless
+        # Draw a normal random velocity vector with the appropriate mean 
+        # and variance for all components
+        self.velocity_vector = np.zeros(3)
+        self.velocity_vector[0] = np.random.normal(loc=mu_parallel,scale=sigma_parallel) # dimensionless
+        self.velocity_vector[1] = np.random.normal(loc=mu_perp,scale=sigma_perp) # dimensionless
+        self.velocity_vector[2] = np.random.normal(loc=mu_cross,scale=sigma_cross) # dimensionless
+    
+    def update_position_vector(self,L_i,mu_rnd,phi_rnd):
+        """
+        Update the position vector of the point.
+        
+        Parameters
+        ----------
+        L_i: float
+            Comoving distance from last point, in Mpc.
+        mu_rnd: float
+            Random mu=cos(theta) with respect to the photon's trajectory.
+        phi_rnd: float
+            Random phi with respect to the photon's trajectory.
+        
+        """
+        
+        # Set a displacement vector in a frame aligned with the photon's 
+        # direction from the previous iteration
+        Delta_r_vector = np.array([L_i*mu_rnd,
+                                   L_i*np.sqrt(1.-mu_rnd**2)*np.cos(phi_rnd),
+                                   L_i*np.sqrt(1.-mu_rnd**2)*np.sin(phi_rnd)]
+                                  ) # Mpc
+        # Convert current photon's vector to spherical coordinates
+        r_curr = norm(self.position_vector) # Mpc
+        if r_curr == 0.:
+            mu_curr = 1.
+            phi_curr = 0.
+        else:
+            mu_curr = self.position_vector[0]/r_curr
+            if mu_curr**2 == 1.:
+                phi_curr = 0.
+            else:
+                phi_curr = np.arctan2(self.position_vector[2],self.position_vector[1])
+        # Rotate displacement vector so it will be measured now from the "grid's" frame
+        Delta_r_vector = calculate_rotation_matrix(mu_curr,phi_curr).dot(Delta_r_vector)  # Mpc
+        # Update position vector
+        self.position_vector += Delta_r_vector # Mpc
+        # Sanity check: the norm of the position vector, i.e. the distance of
+        #               the point from the source, can be also computed with
+        #               the cosine theorem (see Eq. A4 in arXiv: 2101.01777)
+        r_curr = np.sqrt(r_curr**2+L_i**2+2.*r_curr*L_i*mu_rnd) # Mpc
+        if abs(1.-norm(self.position_vector)/r_curr) > 1.e-3:
+            print(f"Warning at z={self.redshift}: position vector was not updated correctly")
+    
+    def compute_dtau_2_dL(self):
+        """
+        Compute dtau/dL, given redshift and apparent frequency.
+        This is how optical depth tau changes with the comoving distance L.
+        
+        """
+        # Compute cross section
+        if self.sim_params.INCLUDE_TEMPERATURE:
+            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
+        else:
+            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
+        # Number density of neutral hydrogen
+        # Note we assume homogeneity here
+        n_HI = self.cosmo_params.n_H_z0*self.cosmo_params.x_HI*(1.+self.redshift)**3 # m^-3
+        # This the integrand for the tau integral.
+        # We divide by (1+z) as "L" here is comoving distance (not proper)
+        dtau_2_dL = n_HI*sigma_Lya/(1.+self.redshift) # 1/m
+        return dtau_2_dL
+
+
+#%% Class for managing a single photon data
+
+class PHOTON_POINTS_DATA():
+    """
+    Class for managing a single photon data.
+    
+    Parameters
+    ----------
+    z_abs_data: :class:`~COSMO_POINT_DATA`
+        Data of the first point in the simulation (the absorption point).
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+        Needs to be passed after CLASS was run.
+    sim_params: :class:`~SIM_PARAMS`
+        The simulation parameters.
+    random_seed: float
+        The random seed to be used for this photon.
+    
+    The class stores all the scattering points of the photon (starting from
+    the absorption point) in a list that can be accessed via `points_data`.
+    """
+    
+    def __init__(self,
+                 z_abs_data,
+                 cosmo_params,
+                 sim_params,
+                 random_seed
+                 
+    ):
+        self.z_abs = z_abs_data.redshift
+        self.cosmo_params = cosmo_params
+        self.sim_params = sim_params
+        self.points_data = [z_abs_data]
+        self.random_seed = random_seed
+    
+    def append(self,point_data):
+        """
+        Append current point to this object.
+        
+        Parameters
+        ----------
+        point_data: :class:`~COSMO_POINT_DATA`
+            New data point to append.
+        """
+        
+        self.points_data.append(point_data)
+        
+    def draw_first_point(self):
+        """
+        Draw the first point for this photon.
+        This is done from the analytical fit of Loeb & Rybicki 1999 
+        (arXiv: astro-ph/9902180).
+        
+        Returns
+        -------
+        point_data: :class:`~COSMO_POINT_DATA`
+            Data of the first point.
+        """
+        
+        # Copy the content of z_abs_data into z_ini_data.
+        z_abs_data = self.points_data[0]
+        z_ini_data = z_abs_data.copy()
+        # Find the next redshift from the initial frequency shift
+        z_ini = (1.+self.z_abs)*(1.+ self.sim_params.Delta_nu_initial) - 1.
+        z_ini_data.redshift = z_ini
+        # Define initial frequency at z_ini
+        z_ini_data.apparent_frequency = (1.+z_ini)/(1.+self.z_abs) # dimensionless (in units of Lya frequency)
+        # Correct initial frequency due to temperature
+        if self.sim_params.INCLUDE_TEMPERATURE:
+            # Draw a random thermal velocity from Gaussian distribution
+            # Note: here we do not divide the scale by sqrt(2) as we do in simulate_one_photon.
+            #       This is because we are looking for the relative thermal velocity, so the variance is two times larger
+            #       (since the thermal velocities are not correlated)
+            Delta_nu = np.sqrt(2*k_B*self.cosmo_params.T/self.cosmo_params.m_b/c**2) # dimensionless (in units of nu_Lya)
+            v_thermal_rel_parallel = np.random.normal(scale=Delta_nu)
+            z_ini_data.apparent_frequency /= (1.-v_thermal_rel_parallel)
+        if self.sim_params.INCLUDE_VELOCITIES:
+            # Compute the smoothed 1D velocity RMS in z_ini
+            z_ini_data.compute_RMS()
+            # Draw velocity at z_prime based on the velocity vector at z_prime_old
+            z_ini_data.draw_conditional_velocity_vector(z_abs_data)
+            # Compute parallel component of relative velocity with respect to the last point
+            # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
+            v_rel_parallel = z_ini_data.velocity_vector[0] - z_abs_data.velocity_vector[0] # dimensionless
+            # Correct initial frequency due to peculiar velocity
+            z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
+        # Draw the position vector from uncorrelated Gaussian distributions
+        tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_star(self.z_abs) # dimensionless
+        scale = np.sqrt(2./9.*tilde_nu**3)*self.cosmo_params.r_star(self.z_abs) # Mpc
+        z_ini_data.position_vector = np.random.normal(scale=scale,size=3) # Mpc
+        # Return output
+        return z_ini_data
+        
+        
+    def plot_photon_trajectory(self,
+                               scale=5.,
+                               ax = None,
+                               **kwargs):
+        """
+        Plot the trajectory of this photon.
+        
+        Parameters
+        ----------
+        scale: float, optional
+            The scale for this plot in Mpc.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        x_list = []
+        y_list = []
+        z_list = []
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8), subplot_kw=dict(projection='3d'))
+        else:
+            fig = ax.figure
+        for i in range(len(self.points_data)):
+            z_i_data = self.points_data[i]
+            x_list.append(z_i_data.position_vector[0])
+            y_list.append(z_i_data.position_vector[1])
+            z_list.append(z_i_data.position_vector[2])
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+        z_array = np.array(z_list)
+        ax.plot(x_array,y_array,z_array,**kwargs)
+        ax.set_xlabel('$X\\,[\\mathrm{Mpc}]$',fontsize=15)
+        ax.set_ylabel('$Y\\,[\\mathrm{Mpc}]$',fontsize=15)
+        ax.set_zlabel('$Z\\,[\\mathrm{Mpc}]$',fontsize=15)
+        ax.set_xlim([-scale,scale])
+        ax.set_ylim([-scale,scale])
+        ax.set_zlim([-scale,scale])
+        ax.set_xticks(np.arange(-scale,scale+scale/5.,scale/5.))
+        ax.set_yticks(np.arange(-scale,scale+scale/5.,scale/5.))
+        ax.set_zticks(np.arange(-scale,scale+scale/5.,scale/5.))
+        ax.xaxis.set_tick_params(labelsize=12)
+        ax.yaxis.set_tick_params(labelsize=12)
+        ax.zaxis.set_tick_params(labelsize=12)
+        if "label" in kwargs:
+            ax.legend(fontsize=15)
+        # Return output
+        return fig, ax
+    
+    def plot_apparent_frequency(self,
+                                ax = None,
+                                **kwargs):
+        """
+        Plot the evolution of the apparent frequncy of this photon 
+        in the gas frame.
+        
+        Parameters
+        ----------
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        z_list = []
+        nu_list = []
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        else:
+            fig = ax.figure
+        for i in range(len(self.points_data)):
+            z_i_data = self.points_data[i]
+            z_list.append(z_i_data.redshift)
+            nu_list.append(z_i_data.apparent_frequency)
+        z_array = np.array(z_list)
+        nu_array = np.array(nu_list)
+        ax.loglog((z_array-self.z_abs)/(1.+self.z_abs),nu_array-1.,**kwargs)
+        # Add a Lymann beta horizontal dashed line
+        ax.axhline(y=Lyman_beta-1.,ls='--',color='k')
+        # Add a diffusion horizontal dotted line
+        ax.axhline(y=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
+        ax.axvline(x=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
+        ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
+        ax.set_ylabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
+        ax.xaxis.set_tick_params(labelsize=20)
+        ax.yaxis.set_tick_params(labelsize=20)
+        if "label" in kwargs:
+            ax.legend(fontsize=20)
+        # Return output
+        return fig, ax
+
+    def plot_distance(self,
+                      intermediate_pts = True,
+                      ax = None,
+                      **kwargs):
+        """
+        Plot the distance evolution of this photon with respect to the 
+        absorption point.
+        
+        Parameters
+        ----------
+        intermediate_pts: bool, optional
+            If this flag is True, then intermediate points (i.e. at z') are
+            also shown. If false, then only the points in which the photon
+            has scattered, z_i, are shown.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        z_list = []
+        r_list = []
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        else:
+            fig = ax.figure
+        for i in range(len(self.points_data)):
+            z_i_data = self.points_data[i]
+            z_list.append(z_i_data.redshift)
+            r_list.append(norm(z_i_data.position_vector)) # Mpc
+            if intermediate_pts:
+                if i < len(self.points_data)-1:
+                    z_i_plus1_data = self.points_data[i+1]
+                    z_i_plus1 = z_i_plus1_data.redshift
+                    z_i = z_i_data.redshift
+                    # N is the number of grid points between z_i and z_{i+1}
+                    N = int(self.cosmo_params.R_SL(z_i,z_i_plus1)/self.sim_params.Delta_L)
+                    for n in np.arange(1,N):
+                        z_prime = self.cosmo_params.R_SL_inverse(z_i,n*self.sim_params.Delta_L)
+                        z_list.append(z_prime)
+                        w = n/N
+                        z_prime_position_vector = (1.-w)*z_i_data.position_vector # Mpc
+                        z_prime_position_vector += w*z_i_plus1_data.position_vector # Mpc
+                        r_list.append(norm(z_prime_position_vector)) # Mpc
+        z_array = np.array(z_list)
+        r_array = np.array(r_list)
+        ax.loglog((z_array-self.z_abs)/(1.+self.z_abs),r_array,**kwargs)
+        # Add a Lymann beta horizontal dashed line
+        ax.axhline(y=self.cosmo_params.R_SL(self.z_abs,(1.+self.z_abs)*Lyman_beta-1.),ls='--',color='k')
+        # Add a diffusion horizontal dotted line
+        ax.axhline(y=self.cosmo_params.r_star(self.z_abs),ls=':',color='k')
+        ax.axvline(x=self.cosmo_params.Delta_nu_star(self.z_abs),ls=':',color='k')
+        ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
+        ax.set_ylabel('Distance [Mpc]',fontsize=25)
+        ax.xaxis.set_tick_params(labelsize=20)
+        ax.yaxis.set_tick_params(labelsize=20)
+        if "label" in kwargs:
+            ax.legend(fontsize=20)
+        # Return output
+        return fig, ax
+
+#%% Class for managing data of all photons in the simulation
+
+class ALL_PHOTONS_DATA():
+    """
+    Class for managing data of all photons in the simulation.
+    
+    Parameters
+    ----------
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+        Needs to be passed after CLASS was run.
+    sim_params: :class:`~SIM_PARAMS`
+        The simulation parameters.
+    
+    The class stores all the photons of the simulation in a list that can be 
+    accessed via `photons_data`.
+    """
+    
+    def __init__(self,
+                 cosmo_params,
+                 sim_params
+    ):
+        self.z_abs = sim_params.z_abs
+        self.cosmo_params = cosmo_params
+        self.sim_params = sim_params
+        self.photons_data = []
+        # Determine when to stop the simulation
+        if not self.sim_params.x_stop is None: 
+            r_stop = self.sim_params.x_stop*self.cosmo_params.r_star(self.z_abs) # Mpc
+            z_stop = self.cosmo_params.R_SL_inverse(self.z_abs,r_stop) # final redshift
+            self.nu_stop = (1.+z_stop)/(1.+self.z_abs) # frequency to stop the simulation (in units of Lya frequency)
+            if self.nu_stop > Lyman_beta:
+                self.nu_stop = Lyman_beta
+        else:
+            self.nu_stop = Lyman_beta
+            z_stop = (1.+self.z_abs)*self.nu_stop - 1. # final redshift
+            r_stop = self.cosmo_params.R_SL(self.z_abs,z_stop) # Mpc
+            self.sim_params.x_stop = r_stop/self.cosmo_params.r_star(self.z_abs) # dimensionless
+        # Compute the characteristic spectral width that is associated with the
+        # IGM temperature.
+        # Note that in our dimensionless units, Delta_nu also equals to the
+        # rms of the thermal velocity, and we take advantage of this when we
+        # drawn a random thermal velocity.
+        if self.sim_params.INCLUDE_TEMPERATURE and (self.cosmo_params.T > 0.):
+            self.Delta_nu = np.sqrt(2*k_B*self.cosmo_params.T/self.cosmo_params.m_b/c**2) # dimensionless (in units of nu_Lya)
+            self.a = A_alpha_dimensionless/4/np.pi/self.Delta_nu
+        else:
+            self.Delta_nu = 0.
+            self.a = np.inf
+        # Make interpolation tables for the velocity rms and correlation 
+        # coefficients
+        if self.sim_params.INCLUDE_VELOCITIES and self.sim_params.USE_INTERPOLATION_TABLES:
+            self.make_interpolation_tables()
+        if self.sim_params.ANISOTROPIC_SCATTERING and not self.sim_params.STRAIGHT_LINE:
+            self.make_mu_distribution_tables()
+    
+    def make_mu_distribution_tables(self):
+        """
+        Make interpolation tables for the inverse mu CDF, according to Eq. (20)
+        in arXiv: 2311.03447.
+        """
+        
+        self.mu_table_core = inverse_mu_CDF(11./24.,3./24.)
+        self.mu_table_wing = inverse_mu_CDF(3./8.,3./8.)
+    
+    def make_interpolation_tables(self):
+        """
+        Make interpolation tables for the velocity rms and correlation 
+        coefficients.
+        """
+        
+        print("Now making interpolation tables...")
+        # Create a redshift array that is identical to the redshift array
+        # in the simulation (it only depends on Delta_L)
+        z_end = (1.+self.z_abs)*self.nu_stop-1.
+        if not self.sim_params.STRAIGHT_LINE:
+            z_list = [self.z_abs, (1.+self.z_abs)*(1.+self.sim_params.Delta_nu_initial)-1.]
+        else:
+            z_list = [self.z_abs]
+        while z_list[-1] < 1.02*z_end:
+            z_list.append(self.cosmo_params.R_SL_inverse(z_list[-1],self.sim_params.Delta_L))
+        z_array = np.array(z_list)
+        # Create a velocity rms array for each redshift in z_array
+        rms_array = np.zeros_like(z_array)
+        for zi_ind, zi in enumerate(z_array):
+            rms_array[zi_ind] = self.cosmo_params.compute_RMS(zi,self.sim_params.Delta_L)
+        # Create correlation coefficients arrays for the velocities
+        if not self.sim_params.NO_CORRELATIONS:
+            rho_parallel_matrix = np.zeros((len(z_array),len(z_array)))
+            rho_perp_matrix = np.zeros((len(z_array),len(z_array)))
+            for zi_ind, zi in enumerate(z_array):
+                for zj_ind, zj in enumerate(z_array):
+                    # To save time, we only compute the upper elements of the matrix.
+                    # No need to compute all elements because we are mostly interested
+                    # in small scales correlations
+                    if zj > zi and zj_ind < zi_ind + 10:
+                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = self.cosmo_params.compute_2_point_correlation(z1=zi,
+                                                                                                                                        z2=zj,
+                                                                                                                                        v1_1D_rms=rms_array[zi_ind],
+                                                                                                                                        v2_1D_rms=rms_array[zj_ind])            
+            # Symmetrize matrices and put 1 on the diagonal
+            rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
+            rho_perp_matrix += rho_perp_matrix.T + np.eye(len(z_array))
+        # Create interpolation tables
+        self.cosmo_params.interpolate_RMS = interp1d(z_array, rms_array, kind='cubic')
+        if not self.sim_params.NO_CORRELATIONS:
+            self.cosmo_params.interpolate_rho_parallel = RectBivariateSpline(z_array, z_array, rho_parallel_matrix)
+            self.cosmo_params.interpolate_rho_perp = RectBivariateSpline(z_array, z_array, rho_perp_matrix)
+        # Save also z_array because sometimes the interpolation fails 
+        # as the input is above the interpolation range
+        self.cosmo_params.redshift_grid = z_array
+    
+    def append(self,photon_data):
+        """
+        Append current photon to this object.
+        
+        Parameters
+        ----------
+        point_data: :class:`~PHOTON_POINTS_DATA`
+            New photon to append.
+        """
+    
+        self.photons_data.append(photon_data)
+    
+    def plot_photon_trajectory(self,
+                               photon_number,
+                               scale=5.,
+                               ax = None,
+                               **kwargs):
+        """
+        Plot the trajectory of a photon.
+        
+        Parameters
+        ----------
+        photon_number: int
+            The ID of the requested photon in the simulation.
+        scale: float, optional
+            The scale for this plot in Mpc.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        return self.photons_data[photon_number].plot_photon_trajectory(scale=scale,ax=ax,**kwargs)
+    
+    def plot_apparent_frequency(self,
+                                photon_number,
+                                ax = None,
+                                **kwargs):
+        """
+        Plot the evolution of the apparent frequncy of a photon 
+        in the gas frame.
+        
+        Parameters
+        ----------
+        photon_number: int
+            The ID of the requested photon in the simulation.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        return self.photons_data[photon_number].plot_apparent_frequency(ax=ax,**kwargs)
+    
+    def plot_distance(self,
+                      photon_number,
+                      intermediate_pts = True,
+                      ax = None,
+                      **kwargs):
+        """
+        Plot the distance evolution of a photon with respect to the 
+        absorption point.
+        
+        Parameters
+        ----------
+        photon_number: int
+            The ID of the requested photon in the simulation.
+        intermediate_pts: bool, optional
+            If this flag is True, then intermediate points (i.e. at z') are
+            also shown. If false, then only the points in which the photon
+            has scattered, z_i, are shown.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        """
+        
+        return self.photons_data[photon_number].plot_distance(ax=ax,intermediate_pts=intermediate_pts,**kwargs)
+               
+    def simulate_one_photon(self,random_seed):
+        """
+        Simulate one photon, given a random seed.
+        
+        Parameters
+        ----------
+        random_seed: int
+            The random seed of this photon.
+        
+        This is the heart of the code. Given the random seed, a random velocity
+        vector is drawn at z_abs, where the apparent frequency of the photon
+        is initialized to Lyman alpha. The photon then propoagates backwards 
+        in time and a random optical depth is drawn from exp(-tau) distribution. 
+        During its trajectory, the frequency of the photon is blueshifted to 
+        higher frequencies. Once the photon has traversed a distance that 
+        corresponds to an optical depth that is greater than the threshold, 
+        the photon scatters and gains a new random direction. The data of each 
+        scattering point (which can be viewed as a potential source of emission) 
+        is added to the object. This process continues until the apparent 
+        photon's frequency crosses Lyman beta.
+        
+        """
+        
+        # Set random seed for this photon
+        np.random.seed(random_seed)
+        # Initialize a photon in z_abs with Lyman alpha frequency (1 
+        # in our units, since we normalize frequency by nu_Lya)
+        z_abs_data = COSMO_POINT_DATA(redshift=self.z_abs,
+                                      cosmo_params=self.cosmo_params,
+                                      sim_params=self.sim_params,
+                                      apparent_frequency=1.)
+        if self.sim_params.INCLUDE_VELOCITIES:
+            # Compute the smoothed 1D velocity RMS in z_abs
+            z_abs_data.compute_RMS()
+            # Draw a random velocity at z_abs.
+            # Velocities are dimensionless in this code as they are normalized
+            # by c.
+            z_abs_data.velocity_vector = np.random.normal(scale=z_abs_data.velocity_1D_rms,size=3) # dimensionless
+        # Create a photon data object and initialize it with the point at z_abs
+        photon_data = PHOTON_POINTS_DATA(z_abs_data=z_abs_data.copy(),
+                                         cosmo_params=self.cosmo_params,
+                                         sim_params=self.sim_params,
+                                         random_seed=random_seed)
+        # Draw the first position of the photon outside the origin.
+        # This is the diffusion regime, where analytical result can be used.
+        if not self.sim_params.STRAIGHT_LINE:
+            z_ini_data = photon_data.draw_first_point()
+            photon_data.append(z_ini_data.copy())
+            # Initialize z_i to be at z_ini
+            # Each z_i corresponds to a new scattering point
+            z_i_data = z_ini_data.copy()
+        else:
+            z_i_data = z_abs_data.copy()
+        # Compute tau integrand at z_ini
+        dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
+        # Scatter the photon until we reached final frequency
+        while z_i_data.apparent_frequency < self.nu_stop:
+            # Draw random optical depth from an exponential distribution
+            tau_rnd = -np.log(np.random.rand())
+            # Initialize numerical integral for tau
+            tau_integral = 0.
+            dtau_2_dL_prev = dtau_2_dL_curr # 1/m
+            # Initialize z' to be at z_i
+            # z' is a dummy variable, used for the numerical integration of tau 
+            z_prime_data = z_i_data.copy()
+            # Calculate the optical depth numerically, until we crossed the
+            # randomly drawn threshold value
+            while tau_integral < tau_rnd and z_prime_data.apparent_frequency < self.nu_stop:
+                # Update tau integrand
+                dtau_2_dL_prev = dtau_2_dL_curr # 1/m
+                # Set z_prime_old to be z_prime
+                # We will use the velocity in z_prime_old to draw a correlated
+                # velocity at the new z_prime
+                z_prime_old_data = z_prime_data.copy()
+                # Update z_prime
+                next_redshift = self.cosmo_params.R_SL_inverse(z_prime_data.redshift,self.sim_params.Delta_L)
+                z_prime_data = COSMO_POINT_DATA(redshift=next_redshift,
+                                                cosmo_params=self.cosmo_params,
+                                                sim_params=self.sim_params)
+                # We don't need to track the photon's position at every z',
+                # and instead we keep it to be in z_prime_old (which was set to
+                # be at z_i)
+                z_prime_data.position_vector = z_prime_old_data.position_vector
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    # Update roatation matrix in z'
+                    z_prime_data.rotation_matrix = z_prime_old_data.rotation_matrix
+                    # Compute the smoothed 1D velocity RMS in z'
+                    z_prime_data.compute_RMS()
+                    # Draw velocity at z_prime based on the velocity vector at z_prime_old
+                    z_prime_data.draw_conditional_velocity_vector(z_prime_old_data)
+                    # Compute parallel component of relative velocity with respect to the last point
+                    # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
+                    v_rel_parallel = z_prime_data.velocity_vector[0] - z_prime_old_data.velocity_vector[0] # dimensionless
+                # Calculate apparent frequency at z_prime. 
+                # First, we blueshift the apparent frequency from previous redshift
+                z_prime_data.apparent_frequency = z_prime_old_data.apparent_frequency*(1.+z_prime_data.redshift)/(1.+z_prime_old_data.redshift) # dimensionless
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    # Then, we Doppler shift it
+                    # Sign was chosen such that nu_app is larger when v_rel_parallel > 0.
+                    #   If v_rel_parallel > 0, the emitter (at z_prime) moves away 
+                    #   from the absorber (at z_prime_old), which has a known a 
+                    #   frequency. Thus, the emitter must have a larger frequency 
+                    #   in order to compensate for the Doppler shift, which tends to lower
+                    #   the frequency in the absorber's frame
+                    z_prime_data.apparent_frequency /= (1.-v_rel_parallel) # dimensionless
+                # Compute tau integrand at z' 
+                dtau_2_dL_curr = z_prime_data.compute_dtau_2_dL() # 1/m
+                # Compute integral of optical depth numerically 
+                # (this is simple integration by the trapezoidal rule)
+                dtau_2_dL = (dtau_2_dL_prev + dtau_2_dL_curr)/2. # 1/m
+                dtau = dtau_2_dL * self.sim_params.Delta_L * Mpc_to_meter # dimensionless
+                tau_integral += dtau  # dimensionless
+            # Draw a random direction in which the photon has propagated
+            if self.sim_params.STRAIGHT_LINE:
+                mu_rnd = 1.
+                phi_rnd = 0.
+            else:
+                if self.sim_params.ANISOTROPIC_SCATTERING:
+                    # Draw random mu from the phase function,
+                    # given by Eq. (20) in arXiv: 2311.03447
+                    if abs(z_i_data.apparent_frequency-1.) < 0.2*self.Delta_nu:
+                        mu_rnd = self.mu_table_core(np.array([np.random.rand()]))[0]
+                    else:
+                        mu_rnd = self.mu_table_wing(np.array([np.random.rand()]))[0]
+                else:
+                    # Draw random mu from a uniform distribution
+                    mu_rnd = -1.+2.*np.random.rand()
+                # phi is always drawn from a uniform distribution
+                phi_rnd = 2.*np.pi*np.random.rand()
+            # Compute comoving distance between z_i and z_{i+1} (assumed to be z_prime),
+            # according to the straight line formula
+            L_i = self.cosmo_params.R_SL(z_i_data.redshift,z_prime_data.redshift) # Mpc
+            # Update scattering event (it is assumed that z_{i+1} = z_prime)
+            z_i_data = z_prime_data.copy()
+            # Update position vector of the photon
+            z_i_data.update_position_vector(L_i,mu_rnd,phi_rnd)
+            # Append z_{i+1} to the lists of scattering events
+            photon_data.append(z_i_data.copy())
+            # If we exited the tau loop because we exceeded tau_rnd,
+            # then we have more upcoming scattering events!
+            if tau_integral >= tau_rnd:
+                # For the next scattering event, we need to rotate the velocity vector
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    z_i_data.rotate(mu_rnd,phi_rnd)
+                # Change frequency of scattered photon due to recoil
+                if self.sim_params.INCLUDE_RECOIL and self.sim_params.INCLUDE_TEMPERATURE:
+                    # Draw a random thermal velocity vector. The perpendicular component is drawn from a normal distribution
+                    # while the parallel component is drawn from Eq. (25) in arXiv: 2311.03447.
+                    # Note that in our dimensionless units, Delta_nu also equals the rms of thermal velocity
+                    # Also note that we only need two components for the thermal velocity, not three
+                    v_thermal_perp = np.random.normal(scale=self.Delta_nu/np.sqrt(2.)) # dimensionless
+                    if self.cosmo_params.T > 0.:
+                        v_thermal_parallel = self.Delta_nu*draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
+                    else:
+                        v_thermal_parallel = 0.
+                    # Update frequency according to Eq. (23) in arXiv: 2311.03447
+                    z_i_data.apparent_frequency /= 1. + (1.-mu_rnd)*h_P*z_i_data.apparent_frequency*nu_Lya/(m_H*c**2) # dimensionless
+                    z_i_data.apparent_frequency *= 1. + (mu_rnd - 1.)*v_thermal_parallel + np.sqrt(1.-mu_rnd**2)*v_thermal_perp # dimensionless
+                    # Also update tau integrand
+                    dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
+            # Otherwise, we reached beyond final frequency and we can stop the simulation for this photon
+            else:
+                break
+        # Append the data of this photon to the object
+        self.append(photon_data)
+        
+    def simulate_N_photons(self):
+        """
+        Simulate many photons.
+        
+        Many different photons are simulated, each of which with a different
+        random seed. The total number of simulated photons is determined by
+        self.sim_params.N.
+        """
+        
+        # Initalize random seed for the first photon
+        random_seed = int(self.sim_params.z_abs)
+        
+        # Simulate N photons
+        for n  in tqdm.tqdm(range(self.sim_params.N),
+                            desc="",
+                            unit="photons",
+                            disable=False,
+                            total= self.sim_params.N):
+            self.simulate_one_photon(random_seed)
+            # Use a different random seed for the next photon
+            random_seed += 1

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sparta"
-version = "0.1.0"
-description = "My Sparta project"
+version = "1.0.0"
+description = "Speedy Lyman alpha ray tracing algorithm"
 authors = [
-    { name = "Your Name", email = "you@example.com" }
+    { name = "Jordan Flitter", email = "jordan.flitter@sns.it" }
 ]
 readme = "README.md"
 requires-python = ">=3.8"
