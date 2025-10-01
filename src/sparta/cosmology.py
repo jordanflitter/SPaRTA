@@ -68,7 +68,7 @@ def compute_RMS(
     cosmo_params,
     CLASS_OUTPUT,
     z,
-    r
+    r_smooth
     ):
 
     """
@@ -83,7 +83,7 @@ def compute_RMS(
         An object containing all the information from the CLASS calculation.
     z: float
         Redshift.
-    r: float
+    r_smooth: float
         Smoothing radius, in Mpc.
     
     Returns
@@ -97,7 +97,7 @@ def compute_RMS(
     Transfer_z = CLASS_OUTPUT.get_transfer(z=z)
     theta_b_z_CLASS = Transfer_z['t_b'][:] # 1/Mpc
     # Interpolate transfer function
-    k_arr = np.logspace(-4.,4.,10000)/r
+    k_arr = np.logspace(-4.,4.,10000)/r_smooth
     k_arr = np.concatenate((np.linspace(min(k_CLASS),min(k_arr),100),k_arr))
     k_arr = np.unique(k_arr)
     k_arr = np.sort(k_arr) # 1/Mpc
@@ -108,12 +108,12 @@ def compute_RMS(
     # Power spectrum of primordial curvature fluctuations
     Delta_R_sq = cosmo_params.A_s*pow(k_arr/0.05,cosmo_params.n_s-1.) # dimensionless
     # Window function (for smoothing the fields at scale r)
-    kr = k_arr*r # dimensionless
+    kr_smooth = k_arr*r_smooth # dimensionless
     with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
-        W_k_top_hat = 3.*(np.sin(kr)-kr*np.cos(kr))/kr**3 # dimensionless
+        W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
     # Taylor expansion for small kr
-    kr_small = kr[kr < 1.e-3]
-    W_k_top_hat[kr < 1.e-3] = 1.-(kr_small**2)/10.
+    kr_small = kr_smooth[kr_smooth < 1.e-3]
+    W_k_top_hat[kr_smooth < 1.e-3] = 1.-(kr_small**2)/10.
     # Multiply transfer function by window function to smooth the fiedls at scale r
     # WARNING: this smoothing assumes that r is of the cell size!
     v_b_z *= W_k_top_hat # dimensionless
@@ -130,6 +130,7 @@ def compute_Pearson_coefficient(
     z2,
     v1_1D_rms,
     v2_1D_rms,
+    r_smooth,
     r=None
     ):
     
@@ -153,6 +154,8 @@ def compute_Pearson_coefficient(
         1D velocity rms at z1, in units of c.
     v2_1D_rms: float
         1D velocity rms at z2, in units of c.
+    r_smooth: float
+        Smoothing radius, in Mpc.
     r: float, optional
         Comoving distance between the two points, in Mpc.
     
@@ -186,13 +189,15 @@ def compute_Pearson_coefficient(
     v_b_z2 = theta_b_z2/k_arr/np.sqrt(3.) # dimensionless
     # Window functions
     kr = k_arr*r # dimensionless
+    kr_smooth = k_arr*r # dimensionless
     with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
-        W_k_top_hat = 3.*(np.sin(kr)-kr*np.cos(kr))/kr**3 # dimensionless
+        W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
         W_k_parallel = (3.*(kr**2-2.)*np.sin(kr)+6.*kr*np.cos(kr))/kr**3 # dimensionless
         W_k_perp = 3.*(np.sin(kr)-kr*np.cos(kr))/kr**3 # dimensionless
     # Taylor expansion for small kr
     kr_small = kr[kr < 1.e-3]
-    W_k_top_hat[kr < 1.e-3] = 1.-(kr_small**2)/10.
+    kr_smooth_small = kr_smooth[kr_smooth < 1.e-3]
+    W_k_top_hat[kr_smooth < 1.e-3] = 1.-(kr_smooth_small**2)/10.
     W_k_parallel[kr < 1.e-3]= 1.-3.*(kr_small**2)/10.
     W_k_perp[kr < 1.e-3] = 1.-(kr_small**2)/10.
     # Multiply transfer functions by window function to smooth the fiedls at scale r.
@@ -204,8 +209,14 @@ def compute_Pearson_coefficient(
     # Calculate correlation coefficients
     rho_v_parallel = intg.simpson(v_b_z1*v_b_z2* Delta_R_sq * W_k_parallel/ k_arr,x=k_arr) # dimensionless
     rho_v_perp = intg.simpson(v_b_z1*v_b_z2* Delta_R_sq * W_k_perp/ k_arr,x=k_arr) # dimensionless
-    rho_v_parallel /= v1_1D_rms*v2_1D_rms # dimensionless
-    rho_v_perp /= v1_1D_rms*v2_1D_rms # dimensionless
+    
+    denominator = intg.simpson(Delta_R_sq*v_b_z1*v_b_z1/k_arr, x=k_arr) # dimensionless
+    denominator *= intg.simpson(Delta_R_sq*v_b_z2*v_b_z2/k_arr, x=k_arr) # dimensionless
+    denominator = np.sqrt(denominator)
+    
+    denominator = v1_1D_rms*v2_1D_rms
+    rho_v_parallel /= denominator # dimensionless
+    rho_v_perp /= denominator # dimensionless
     # Sanity check: -1 <= rho <= 1
     if rho_v_parallel**2 > 1:
         print(f"Warning: At (z1,z2)={z1,z2} the correlation coefficient for v_parallel is rho={rho_v_parallel}")

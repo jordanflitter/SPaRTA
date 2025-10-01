@@ -153,7 +153,7 @@ class COSMO_POINT_DATA():
                 cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = self.redshift,
-                r = self.sim_params.Delta_L
+                r_smooth = self.sim_params.Delta_L
             )
         
     def evaluate_Pearson_coefficient(self,z1_data,r=None):
@@ -188,7 +188,8 @@ class COSMO_POINT_DATA():
                     z1=z1_data.redshift,
                     z2=self.redshift,
                     v1_1D_rms=z1_data.velocity_1D_rms,
-                    v2_1D_rms=self.velocity_1D_rms
+                    v2_1D_rms=self.velocity_1D_rms,
+                    r_smooth = self.sim_params.Delta_L
                 )
         else:
             self.rho_v_parallel = 0.
@@ -573,7 +574,7 @@ class ALL_PHOTONS_DATA():
                 cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = zi,
-                r = self.sim_params.Delta_L
+                r_smooth = self.sim_params.Delta_L
             )
         # Create correlation coefficients arrays for the velocities
         if not self.sim_params.NO_CORRELATIONS:
@@ -584,14 +585,15 @@ class ALL_PHOTONS_DATA():
                     # To save time, we only compute the upper elements of the matrix.
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
-                    if zj > zi and zj_ind < zi_ind + 10:
+                    if zj > zi and zj_ind < zi_ind + 2:
                         rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = cosmology.compute_Pearson_coefficient(
                             cosmo_params=self.cosmo_params,
                             CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                             z1=zi,
                             z2=zj,
                             v1_1D_rms=rms_array[zi_ind],
-                            v2_1D_rms=rms_array[zj_ind]
+                            v2_1D_rms=rms_array[zj_ind],
+                            r_smooth = self.sim_params.Delta_L
                         )
             # Symmetrize matrices and put 1 on the diagonal
             rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
