@@ -189,7 +189,7 @@ def compute_Pearson_coefficient(
     v_b_z2 = theta_b_z2/k_arr/np.sqrt(3.) # dimensionless
     # Window functions
     kr = k_arr*r # dimensionless
-    kr_smooth = k_arr*r # dimensionless
+    kr_smooth = k_arr*r_smooth # dimensionless
     with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
         W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
         W_k_parallel = (3.*(kr**2-2.)*np.sin(kr)+6.*kr*np.cos(kr))/kr**3 # dimensionless
