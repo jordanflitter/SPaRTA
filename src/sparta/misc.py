@@ -157,7 +157,7 @@ def draw_from_voigt_distribution(x,a):
     # Return output
     return u
 
-def compute_correlation_function(r,cosmo_params,kind='density',normalization=True):
+def compute_correlation_function(r,r_smooth,cosmo_params,kind='density',normalization=True):
     """
     Compute the 2-point correlation at z=0 as a function of 
     comoving distance.
@@ -166,6 +166,8 @@ def compute_correlation_function(r,cosmo_params,kind='density',normalization=Tru
     ----------
     r: float
         The comoving distance in Mpc.
+    r_smooth: float
+        The smoothing radius in Mpc.
     cosmo_params: :class:`~COSMO_PARAMS`
         The cosmological parameters and functions for the simulation.
         Needs to be passed after CLASS was run.
@@ -199,12 +201,20 @@ def compute_correlation_function(r,cosmo_params,kind='density',normalization=Tru
         k_arr = np.sort(k_arr)
     else:
         k_arr = k_CLASS
-    transfer = interp1d(k_CLASS, transfer_CLASS,
-                        kind='cubic',bounds_error=False,fill_value=0.)(k_arr)
+    transfer = np.exp(
+        interp1d(
+            np.log(k_CLASS), 
+            np.log(transfer_CLASS),
+            kind='cubic',
+            bounds_error=False,
+            fill_value="extrapolate"
+        )(np.log(k_arr))
+    )
     # Power spectrum of primordial curvature fluctuations
     P_R = cosmo_params.A_s*pow(k_arr/0.05,cosmo_params.n_s-1.)
     # Window function
     kr = k_arr*r # dimensionless
+    kr_smooth = k_arr*r_smooth # dimensionless
     with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
         if kind == 'density':
             W_k =  np.sin(kr)/kr # dimensionless
@@ -212,6 +222,7 @@ def compute_correlation_function(r,cosmo_params,kind='density',normalization=Tru
             W_k = (3.*(kr**2-2.)*np.sin(kr)+6.*kr*np.cos(kr))/kr**3 # dimensionless
         elif kind == 'v_perp':
             W_k = 3.*(np.sin(kr)-kr*np.cos(kr))/kr**3 # dimensionless
+        W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
     # Taylor expansion for small kr
     kr_small = kr[kr < 1.e-3]
     if kind == 'density':
@@ -220,6 +231,10 @@ def compute_correlation_function(r,cosmo_params,kind='density',normalization=Tru
         W_k[kr < 1.e-3]= 1.-3.*(kr_small**2)/10.
     elif kind == 'v_perp':
         W_k[kr < 1.e-3] = 1.-(kr_small**2)/10.
+    kr_smooth_small = kr_smooth[kr_smooth < 1.e-3]
+    W_k_top_hat[kr_smooth < 1.e-3] = 1.-(kr_smooth_small**2)/10.
+    # Smooth transfer
+    transfer *= W_k_top_hat
     # Integrate to get the correlation function xi(r)
     integrand = P_R*transfer*transfer*W_k/k_arr # Mpc
     xi = intg.simpson(integrand, x=k_arr) # dimensionless

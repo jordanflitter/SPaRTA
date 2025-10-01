@@ -214,7 +214,7 @@ def compute_Pearson_coefficient(
     denominator *= intg.simpson(Delta_R_sq*v_b_z2*v_b_z2/k_arr, x=k_arr) # dimensionless
     denominator = np.sqrt(denominator)
     
-    denominator = v1_1D_rms*v2_1D_rms
+    #denominator = v1_1D_rms*v2_1D_rms
     rho_v_parallel /= denominator # dimensionless
     rho_v_perp /= denominator # dimensionless
     # Sanity check: -1 <= rho <= 1

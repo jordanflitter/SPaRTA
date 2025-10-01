@@ -383,6 +383,13 @@ class PHOTON_POINTS_DATA():
             # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
             v_rel_parallel = z_ini_data.velocity_vector[0] - z_abs_data.velocity_vector[0] # dimensionless
             # Correct initial frequency due to peculiar velocity
+            # TODO: We still don't know the distance of the photon from the origin.
+            #       Therefore, the Pearson coefficient is computed while assuming that r=R_SL(z_abs,z_1), which for the initial
+            #       redshift difference is r ~ 0.5 Mpc. However, it is very unlikely that the photon is located from the origin
+            #       by that distance (it should be closer due to multiple scattering), so the Pearson coefficient should be higher
+            #       than what we compute (i.e. closer to 1), and the relative velocity should be lower, so the Doppler shift is less
+            #       significant. This could be changed if the 2D interpolation table for the Pearson coefficient depends on z1 and r
+            #       (not on z1 and z2). 
             z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
         # Draw the position vector from uncorrelated Gaussian distributions
         tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_star(self.z_abs) # dimensionless

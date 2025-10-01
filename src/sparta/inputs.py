@@ -122,7 +122,7 @@ class COSMO_PARAMS():
         CLASS_params['m_ncdm'] = "0.06" # eV
         CLASS_params['N_ncdm'] = 1
         CLASS_params['N_ur'] = 2.0308
-        CLASS_params['output'] = 'mTk,vTk'
+        CLASS_params['output'] = 'mTk,vTk,mPk'
         CLASS_params['z_pk'] = 60.
         CLASS_params['gauge']='Newtonian'
         CLASS_params['P_k_max_1/Mpc'] = 100. # A rather high value for computing correlation at small distances
