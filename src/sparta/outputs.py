@@ -94,15 +94,16 @@ class COSMO_POINT_DATA():
             velocity_1D_rms = None
 
         # Return output
-        return COSMO_POINT_DATA(redshift=self.redshift,
-                                cosmo_params=self.cosmo_params,
-                                sim_params=self.sim_params,
-                                velocity_vector=velocity_vector,
-                                position_vector=self.position_vector.copy(),
-                                rotation_matrix=rotation_matrix,
-                                apparent_frequency=self.apparent_frequency,
-                                velocity_1D_rms=velocity_1D_rms
-                                )
+        return COSMO_POINT_DATA(
+            redshift=self.redshift,
+            cosmo_params=self.cosmo_params,
+            sim_params=self.sim_params,
+            velocity_vector=velocity_vector,
+            position_vector=self.position_vector.copy(),
+            rotation_matrix=rotation_matrix,
+            apparent_frequency=self.apparent_frequency,
+            velocity_1D_rms=velocity_1D_rms
+        )
     
     def rotate(self,mu,phi):
         """
@@ -135,7 +136,7 @@ class COSMO_POINT_DATA():
         #       This is exactly what we do when we collect the data in SIM_DATA() below.
         self.velocity_vector = R_matrix_inv.dot(self.velocity_vector) # dimensionless
     
-    def compute_RMS(self):
+    def evaluate_RMS(self):
         """
         Compute the smoothed 1D velocity rms for this point. 
         Interpolation is performed if USE_INTERPOLATION_TABLES = True.
@@ -148,10 +149,14 @@ class COSMO_POINT_DATA():
                 self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1])
         # Integrate!
         else:
-            self.velocity_1D_rms = self.cosmo_params.compute_RMS(z=self.redshift,
-                                                                 r=self.sim_params.Delta_L)
+            self.velocity_1D_rms = cosmology.compute_RMS(
+                cosmo_params = self.cosmo_params,
+                CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                z = self.redshift,
+                r = self.sim_params.Delta_L
+            )
         
-    def compute_2_point_correlation(self,z1_data,r=None):
+    def evaluate_Pearson_coefficient(self,z1_data,r=None):
         """
         Compute velocity correlation coefficients for parallel and 
         perpendicular components, between the current point and the one 
@@ -177,10 +182,14 @@ class COSMO_POINT_DATA():
                     print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_perp is rho={self.rho_v_perp}")
             # Integrate!
             else:
-                self.rho_v_parallel, self.rho_v_perp = self.cosmo_params.compute_2_point_correlation(z1=z1_data.redshift,
-                                                                                                    z2=self.redshift,
-                                                                                                    v1_1D_rms=z1_data.velocity_1D_rms,
-                                                                                                    v2_1D_rms=self.velocity_1D_rms)
+                self.rho_v_parallel, self.rho_v_perp = cosmology.compute_Pearson_coefficient(
+                    cosmo_params=self.cosmo_params,
+                    CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
+                    z1=z1_data.redshift,
+                    z2=self.redshift,
+                    v1_1D_rms=z1_data.velocity_1D_rms,
+                    v2_1D_rms=self.velocity_1D_rms
+                )
         else:
             self.rho_v_parallel = 0.
             self.rho_v_perp = 0.
@@ -199,7 +208,7 @@ class COSMO_POINT_DATA():
         """
         # Compute the 2-point correlation coefficients for the parallel and 
         # perpendicular components of the velocity field.
-        self.compute_2_point_correlation(z1_data)
+        self.evaluate_Pearson_coefficient(z1_data)
         # Comopute the conditional mean and variance for the current velocity
         # components, based on the previous point.
         # For two Gaussian random variables X and Y, the conditional mean (mu) 
@@ -366,7 +375,7 @@ class PHOTON_POINTS_DATA():
             z_ini_data.apparent_frequency /= (1.-v_thermal_rel_parallel)
         if self.sim_params.INCLUDE_VELOCITIES:
             # Compute the smoothed 1D velocity RMS in z_ini
-            z_ini_data.compute_RMS()
+            z_ini_data.evaluate_RMS()
             # Draw velocity at z_prime based on the velocity vector at z_prime_old
             z_ini_data.draw_conditional_velocity_vector(z_abs_data)
             # Compute parallel component of relative velocity with respect to the last point
@@ -560,7 +569,12 @@ class ALL_PHOTONS_DATA():
         # Create a velocity rms array for each redshift in z_array
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
-            rms_array[zi_ind] = self.cosmo_params.compute_RMS(zi,self.sim_params.Delta_L)
+            rms_array[zi_ind] = cosmology.compute_RMS(
+                cosmo_params = self.cosmo_params,
+                CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                z = zi,
+                r = self.sim_params.Delta_L
+            )
         # Create correlation coefficients arrays for the velocities
         if not self.sim_params.NO_CORRELATIONS:
             rho_parallel_matrix = np.zeros((len(z_array),len(z_array)))
@@ -571,12 +585,14 @@ class ALL_PHOTONS_DATA():
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
                     if zj > zi and zj_ind < zi_ind + 10:
-                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = self.cosmo_params.compute_2_point_correlation(
+                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = cosmology.compute_Pearson_coefficient(
+                            cosmo_params=self.cosmo_params,
+                            CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                             z1=zi,
                             z2=zj,
                             v1_1D_rms=rms_array[zi_ind],
                             v2_1D_rms=rms_array[zj_ind]
-                        )            
+                        )
             # Symmetrize matrices and put 1 on the diagonal
             rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
             rho_perp_matrix += rho_perp_matrix.T + np.eye(len(z_array))
@@ -716,7 +732,7 @@ class ALL_PHOTONS_DATA():
                                       apparent_frequency=1.)
         if self.sim_params.INCLUDE_VELOCITIES:
             # Compute the smoothed 1D velocity RMS in z_abs
-            z_abs_data.compute_RMS()
+            z_abs_data.evaluate_RMS()
             # Draw a random velocity at z_abs.
             # Velocities are dimensionless in this code as they are normalized
             # by c.
@@ -770,7 +786,7 @@ class ALL_PHOTONS_DATA():
                     # Update roatation matrix in z'
                     z_prime_data.rotation_matrix = z_prime_old_data.rotation_matrix
                     # Compute the smoothed 1D velocity RMS in z'
-                    z_prime_data.compute_RMS()
+                    z_prime_data.evaluate_RMS()
                     # Draw velocity at z_prime based on the velocity vector at z_prime_old
                     z_prime_data.draw_conditional_velocity_vector(z_prime_old_data)
                     # Compute parallel component of relative velocity with respect to the last point
