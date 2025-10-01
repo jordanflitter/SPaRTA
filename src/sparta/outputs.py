@@ -585,7 +585,7 @@ class ALL_PHOTONS_DATA():
                     # To save time, we only compute the upper elements of the matrix.
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
-                    if zj > zi and zj_ind < zi_ind + 2:
+                    if zj > zi and zj_ind == zi_ind + 1:
                         rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = cosmology.compute_Pearson_coefficient(
                             cosmo_params=self.cosmo_params,
                             CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
