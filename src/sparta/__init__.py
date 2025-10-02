@@ -39,7 +39,9 @@ from .post_processing import (
 )
 from . cosmology import(
     compute_Lya_cross_section,
-    compute_correlation_function
+    compute_correlation_function,
+    compute_Pearson_coefficient,
+    compute_RMS
 )
 from . plotting import(
     plot_cross_section

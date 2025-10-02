@@ -100,7 +100,8 @@ def compute_RMS(
         r = 0.,
         r_smooth = r_smooth,
         kind1 = "v_perp",
-        kind2 = "v_perp"
+        kind2 = "v_perp",
+        normalization=False
     )
     return np.sqrt(variance) # dimensionless
 
@@ -227,7 +228,7 @@ def compute_correlation_function(
         r = r
     )
     if z2 == z1 and kind2 == kind1:
-        transfer2 = transfer1
+        transfer2 = transfer1.copy()
     else:    
         transfer2, k_array = get_transfer_function(
             CLASS_OUTPUT = CLASS_OUTPUT,
