@@ -46,5 +46,8 @@ from . Lyman_alpha import(
     compute_Lya_cross_section,
 )
 from . plotting import(
-    plot_cross_section
+    plot_cross_section,
+    plot_RMS,
+    plot_Pearson_coefficient,
+    plot_correlation_function
 )

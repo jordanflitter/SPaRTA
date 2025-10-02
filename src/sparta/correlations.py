@@ -102,7 +102,7 @@ def compute_Pearson_coefficient(
         )
     
         # Sanity check: -1 <= rho <= 1
-        if rho**2 > 1:
+        if rho**2 > 1. + 1e-6: # Added a small number because if z1=z2, kind1=kind2 and r=0, rho can be very very close to 1, but a bit higher
             print(f"Warning: At (z1,z2)={z1,z2} the Pearson correlation coefficient for kinds = ({kind1},{kind2}) is rho={rho}")
         
         rho_dict[f"{kind1},{kind2}"] = rho

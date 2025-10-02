@@ -6,10 +6,8 @@ import scipy.integrate as intg
 from numpy.linalg import norm
 from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
+from . import correlations
 from . Lyman_alpha import compute_Lya_cross_section
-
-#%% Define some global parameters
-Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
 
 def plot_cross_section(
     T=0.,
@@ -82,6 +80,129 @@ def plot_cross_section(
         ax.legend(fontsize=20)
     # Return output
     return fig, ax
+
+#%% CLASS_OUTPUT plots
+
+def plot_RMS(
+    CLASS_OUTPUT,
+    r_smooth,
+    kind = "density_m",
+    z_min = 0.,
+    z_max = 35.,
+    ax = None,
+    **kwargs
+):
+    z_array = np.linspace(z_min,z_max,100)
+    rms_array = np.zeros_like(z_array)
+    for ind, z in enumerate(z_array):
+        rms_array[ind] = correlations.compute_RMS(
+            CLASS_OUTPUT = CLASS_OUTPUT,
+            z = z,
+            r_smooth = r_smooth,
+            kind = kind
+        )
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    else:
+        fig = ax.figure
+    ax.plot(z_array,rms_array,**kwargs)
+    ax.set_xlabel('$z$',fontsize=25)
+    ax.set_ylabel('RMS',fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    ax.set_xlim([z_array.min(),z_array.max()])
+    if "label" in kwargs:
+        ax.legend(fontsize=20)
+    # Return output
+    return fig, ax
+
+def plot_Pearson_coefficient(
+    CLASS_OUTPUT,
+    z,
+    r_smooth,
+    kinds = ("density_m","density_m"),
+    r_min = 0.,
+    r_max = 10.,
+    log_x = False,
+    ax = None,
+    **kwargs
+):
+    kind1, kind2 = kinds
+    if log_x:
+        r_array = np.logspace(np.log10(r_min),np.log10(r_max),100)
+    else:
+        r_array = np.linspace(r_min,r_max,100)
+    rho_array = np.zeros_like(r_array)
+    for ind, r in enumerate(r_array):
+        rho_array[ind] = correlations.compute_Pearson_coefficient(
+            CLASS_OUTPUT = CLASS_OUTPUT,
+            z1 = z,
+            z2 = z,
+            r = r,
+            r_smooth = r_smooth,
+            kinds_list = [kinds]
+        )[f"{kind1},{kind2}"]
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    else:
+        fig = ax.figure
+    ax.plot(r_array,rho_array,**kwargs)
+    ax.set_xlabel('$r\\,[\\mathrm{Mpc}]$',fontsize=25)
+    ax.set_ylabel('Pearson correlation coefficient',fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    ax.set_xlim([r_array.min(),r_array.max()])
+    if log_x:
+        ax.set_xscale("log")
+    if "label" in kwargs:
+        ax.legend(fontsize=20)
+    # Return output
+    return fig, ax
+
+def plot_correlation_function(
+    CLASS_OUTPUT,
+    z,
+    r_smooth,
+    kinds = ("density_m","density_m"),
+    r_min = 0.,
+    r_max = 10.,
+    log_x = False,
+    ax = None,
+    **kwargs
+):
+    kind1, kind2 = kinds
+    if log_x:
+        r_array = np.logspace(np.log10(r_min),np.log10(r_max),100)
+    else:
+        r_array = np.linspace(r_min,r_max,100)
+    xi_array = np.zeros_like(r_array)
+    for ind, r in enumerate(r_array):
+        xi_array[ind] = correlations.compute_correlation_function(
+            CLASS_OUTPUT = CLASS_OUTPUT,
+            z1 = z,
+            z2 = z,
+            r = r,
+            r_smooth = r_smooth,
+            kind1 = kind1,
+            kind2 = kind2,
+        )
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    else:
+        fig = ax.figure
+    ax.plot(r_array,xi_array,**kwargs)
+    ax.set_xlabel('$r\\,[\\mathrm{Mpc}]$',fontsize=25)
+    ax.set_ylabel('Correlation function',fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    ax.set_xlim([r_array.min(),r_array.max()])
+    if log_x:
+        ax.set_xscale("log")
+    if "label" in kwargs:
+        ax.legend(fontsize=20)
+    # Return output
+    return fig, ax
+    
 
 #%% PHOTON_POINTS_DATA plots
 
@@ -183,11 +304,6 @@ def plot_apparent_frequency(
     z_array = np.array(z_list)
     nu_array = np.array(nu_list)
     ax.loglog((z_array-photon_points_data.z_abs)/(1.+photon_points_data.z_abs),nu_array-1.,**kwargs)
-    # Add a Lymann beta horizontal dashed line
-    ax.axhline(y=Lyman_beta-1.,ls='--',color='k')
-    # Add a diffusion horizontal dotted line
-    ax.axhline(y=photon_points_data.cosmo_params.Delta_nu_star(photon_points_data.z_abs),ls=':',color='k')
-    ax.axvline(x=photon_points_data.cosmo_params.Delta_nu_star(photon_points_data.z_abs),ls=':',color='k')
     ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
     ax.set_ylabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
     ax.xaxis.set_tick_params(labelsize=20)
@@ -254,11 +370,6 @@ def plot_distance(
     z_array = np.array(z_list)
     r_array = np.array(r_list)
     ax.loglog((z_array-photon_points_data.z_abs)/(1.+photon_points_data.z_abs),r_array,**kwargs)
-    # Add a Lymann beta horizontal dashed line
-    ax.axhline(y=photon_points_data.cosmo_params.R_SL(photon_points_data.z_abs,(1.+photon_points_data.z_abs)*Lyman_beta-1.),ls='--',color='k')
-    # Add a diffusion horizontal dotted line
-    ax.axhline(y=photon_points_data.cosmo_params.r_star(photon_points_data.z_abs),ls=':',color='k')
-    ax.axvline(x=photon_points_data.cosmo_params.Delta_nu_star(photon_points_data.z_abs),ls=':',color='k')
     ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
     ax.set_ylabel('Distance [Mpc]',fontsize=25)
     ax.xaxis.set_tick_params(labelsize=20)
