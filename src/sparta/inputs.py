@@ -111,7 +111,12 @@ class COSMO_PARAMS():
         """
         Run CLASS with the input cosmological parameters.
         
+        Returns
+        -------
+        CLASS_OUTPUT: :class:`classy.Class`
+            An object containing all the information from the CLASS calculation.
         """
+        
         CLASS_params = {}
         CLASS_params['h'] = self.h
         CLASS_params['Omega_cdm'] = self.Omega_c
@@ -136,7 +141,9 @@ class COSMO_PARAMS():
         # Hydrogen number density at z=0
         self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # m^-3
         # Mean baryon mass. It is assumed that helium is doubly ionized when hydrogen is ionized
-        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # kg
+        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # 
+        # Return output
+        return CLASS_OUTPUT
         
     def Delta_nu_star(self,z_abs):
         """
