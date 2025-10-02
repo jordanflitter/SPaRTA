@@ -4,7 +4,7 @@ import numpy as np
 import tqdm
 from scipy.interpolate import interp1d, RectBivariateSpline
 from numpy.linalg import norm
-from . import cosmology, misc, plotting
+from . import correlations, Lyman_alpha, plotting
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -16,6 +16,37 @@ A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to 
 m_H = 1.6735575e-27 # Hydrogen atom mass in kg
 A_alpha_dimensionless = A_alpha/nu_Lya
 Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
+
+def calculate_rotation_matrix(mu,phi):
+    """
+    Construct a rotation matrix that rotates the third axis by mu=cos(theta)
+    and then the first axis by phi.
+    
+    Parameters
+    ----------
+    mu: float
+        The cosine of the angle in which the third axis is rotated.
+    phi: float
+        The angle in which the first axis is rotated (in radians).
+    
+    Returns
+    -------
+    numpy array (3X3):
+        The rotation matrix.
+    """
+    
+    rotation_phi = np.array([
+                            [1.,                0.,                  0.],
+                            [0.,       np.cos(phi),        -np.sin(phi)],
+                            [0.,       np.sin(phi),         np.cos(phi)]
+                            ])
+    rotation_mu = np.array([
+                           [mu,                  -np.sqrt(1.-mu**2),   0.],
+                           [np.sqrt(1.-mu**2),    mu,                  0.],
+                           [0.,                   0.,                  1.]
+                           ])
+    # Return output
+    return rotation_phi.dot(rotation_mu)
 
 #%% Class for managing a cosmological point in spacetime in which the photon has passed
 
@@ -116,7 +147,7 @@ class COSMO_POINT_DATA():
         phi: float
             The angle in which the first axis is rotated (in radians).
         """
-        R_matrix = misc.calculate_rotation_matrix(mu,phi)
+        R_matrix = calculate_rotation_matrix(mu,phi)
         R_matrix_inv = np.linalg.inv(R_matrix)
         # Update rotation matrix
         self.rotation_matrix = self.rotation_matrix.dot(R_matrix)
@@ -149,7 +180,7 @@ class COSMO_POINT_DATA():
                 self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1])
         # Integrate!
         else:
-            self.velocity_1D_rms = cosmology.compute_RMS(
+            self.velocity_1D_rms = correlations.compute_RMS(
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = self.redshift,
                 r_smooth = self.sim_params.Delta_L,
@@ -183,7 +214,7 @@ class COSMO_POINT_DATA():
                     print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_perp is rho={self.rho_v_perp}")
             # Integrate!
             else:
-                rho_dict = cosmology.compute_Pearson_coefficient(
+                rho_dict = correlations.compute_Pearson_coefficient(
                     CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                     z1 = z1_data.redshift,
                     z2 = self.redshift,
@@ -271,7 +302,7 @@ class COSMO_POINT_DATA():
             else:
                 phi_curr = np.arctan2(self.position_vector[2],self.position_vector[1])
         # Rotate displacement vector so it will be measured now from the "grid's" frame
-        Delta_r_vector = misc.calculate_rotation_matrix(mu_curr,phi_curr).dot(Delta_r_vector)  # Mpc
+        Delta_r_vector = calculate_rotation_matrix(mu_curr,phi_curr).dot(Delta_r_vector)  # Mpc
         # Update position vector
         self.position_vector += Delta_r_vector # Mpc
         # Sanity check: the norm of the position vector, i.e. the distance of
@@ -289,9 +320,9 @@ class COSMO_POINT_DATA():
         """
         # Compute cross section
         if self.sim_params.INCLUDE_TEMPERATURE:
-            sigma_Lya = cosmology.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = Lyman_alpha.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
         else:
-            sigma_Lya = cosmology.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = Lyman_alpha.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
         # Number density of neutral hydrogen
         # Note we assume homogeneity here
         n_HI = self.cosmo_params.n_H_z0*self.cosmo_params.x_HI*(1.+self.redshift)**3 # m^-3
@@ -556,8 +587,8 @@ class ALL_PHOTONS_DATA():
         in arXiv: 2311.03447.
         """
         
-        self.mu_table_core = misc.inverse_mu_CDF(11./24.,3./24.)
-        self.mu_table_wing = misc.inverse_mu_CDF(3./8.,3./8.)
+        self.mu_table_core = Lyman_alpha.inverse_mu_CDF(11./24.,3./24.)
+        self.mu_table_wing = Lyman_alpha.inverse_mu_CDF(3./8.,3./8.)
     
     def make_interpolation_tables(self):
         """
@@ -579,7 +610,7 @@ class ALL_PHOTONS_DATA():
         # Create a velocity rms array for each redshift in z_array
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
-            rms_array[zi_ind] = cosmology.compute_RMS(
+            rms_array[zi_ind] = correlations.compute_RMS(
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = zi,
                 r_smooth = self.sim_params.Delta_L,
@@ -595,7 +626,7 @@ class ALL_PHOTONS_DATA():
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
                     if zj > zi and zj_ind == zi_ind + 1:
-                        rho_dict = cosmology.compute_Pearson_coefficient(
+                        rho_dict = correlations.compute_Pearson_coefficient(
                             CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                             z1 = zi,
                             z2 = zj,
@@ -863,7 +894,7 @@ class ALL_PHOTONS_DATA():
                     # Also note that we only need two components for the thermal velocity, not three
                     v_thermal_perp = np.random.normal(scale=self.Delta_nu/np.sqrt(2.)) # dimensionless
                     if self.cosmo_params.T > 0.:
-                        v_thermal_parallel = self.Delta_nu * misc.draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
+                        v_thermal_parallel = self.Delta_nu * Lyman_alpha.draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
                     else:
                         v_thermal_parallel = 0.
                     # Update frequency according to Eq. (23) in arXiv: 2311.03447

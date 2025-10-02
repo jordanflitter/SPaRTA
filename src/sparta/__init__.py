@@ -37,11 +37,13 @@ from .post_processing import (
     SIM_DATA,
     HISTOGRAM_DATA
 )
-from . cosmology import(
-    compute_Lya_cross_section,
+from . correlations import(
     compute_correlation_function,
     compute_Pearson_coefficient,
     compute_RMS
+)
+from . Lyman_alpha import(
+    compute_Lya_cross_section,
 )
 from . plotting import(
     plot_cross_section

@@ -6,7 +6,7 @@ import scipy.integrate as intg
 from numpy.linalg import norm
 from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
-from . cosmology import compute_Lya_cross_section
+from . Lyman_alpha import compute_Lya_cross_section
 
 #%% Define some global parameters
 Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
