@@ -150,7 +150,6 @@ class COSMO_POINT_DATA():
         # Integrate!
         else:
             self.velocity_1D_rms = cosmology.compute_RMS(
-                cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = self.redshift,
                 r_smooth = self.sim_params.Delta_L,
@@ -185,10 +184,10 @@ class COSMO_POINT_DATA():
             # Integrate!
             else:
                 rho_dict = cosmology.compute_Pearson_coefficient(
-                    cosmo_params=self.cosmo_params,
-                    CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
-                    z1=z1_data.redshift,
-                    z2=self.redshift,
+                    CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                    z1 = z1_data.redshift,
+                    z2 = self.redshift,
+                    r = self.cosmo_params.R_SL(z1_data.redshift,self.redshift),
                     r_smooth = self.sim_params.Delta_L,
                     kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
                 )
@@ -209,7 +208,7 @@ class COSMO_POINT_DATA():
             The data of the previous point.
         
         """
-        
+
         # Compute the 2-point correlation coefficients for the parallel and 
         # perpendicular components of the velocity field.
         self.evaluate_Pearson_coefficient(z1_data)
@@ -581,7 +580,6 @@ class ALL_PHOTONS_DATA():
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
             rms_array[zi_ind] = cosmology.compute_RMS(
-                cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = zi,
                 r_smooth = self.sim_params.Delta_L,
@@ -598,10 +596,10 @@ class ALL_PHOTONS_DATA():
                     # in small scales correlations
                     if zj > zi and zj_ind == zi_ind + 1:
                         rho_dict = cosmology.compute_Pearson_coefficient(
-                            cosmo_params=self.cosmo_params,
-                            CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
-                            z1=zi,
-                            z2=zj,
+                            CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                            z1 = zi,
+                            z2 = zj,
+                            r = self.cosmo_params.R_SL(zi,zj),
                             r_smooth = self.sim_params.Delta_L,
                             kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
                         )

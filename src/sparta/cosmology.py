@@ -65,7 +65,6 @@ def compute_Lya_cross_section(
     return sigma_Lya
 
 def compute_RMS(
-    cosmo_params,
     CLASS_OUTPUT,
     z,
     r_smooth,
@@ -77,9 +76,6 @@ def compute_RMS(
     
     Parameters
     ----------
-    cosmo_params: :class:`~COSMO_PARAMS`
-        The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     CLASS_OUTPUT: :class:`classy.Class`
         An object containing all the information from the CLASS calculation.
     z: float
@@ -101,7 +97,6 @@ def compute_RMS(
         kind = "v_perp"
 
     variance = compute_correlation_function(
-        cosmo_params = cosmo_params,
         CLASS_OUTPUT = CLASS_OUTPUT,
         z1 = z,
         z2 = z,
@@ -113,13 +108,12 @@ def compute_RMS(
     return np.sqrt(variance) # dimensionless
 
 def compute_Pearson_coefficient(
-    cosmo_params,
     CLASS_OUTPUT,
     z1,
     z2,
+    r,
     r_smooth,
     kinds_list,
-    r = None
     ):
     
     """
@@ -128,15 +122,14 @@ def compute_Pearson_coefficient(
     
     Parameters
     ----------
-    cosmo_params: :class:`~COSMO_PARAMS`
-        The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     CLASS_OUTPUT: :class:`classy.Class`
         An object containing all the information from the CLASS calculation.
     z1: float
         Initial redshift.
     z2: float
         Final redshift.
+    r: float
+        Comoving distance between the two points, in Mpc.
     r_smooth: float
         Smoothing radius, in Mpc.
     kinds_list: list of tuples
@@ -144,8 +137,6 @@ def compute_Pearson_coefficient(
         Each kind is a string specifying the type kind of the field for which the 
         Pearson coefficient is evaluated: options are "density_m", "density_b"
         "v_parallel" and "v_perp".
-    r: float, optional
-        Comoving distance between the two points, in Mpc.
     
     Returns
     -------
@@ -156,14 +147,10 @@ def compute_Pearson_coefficient(
 
     rho_dict = {}
 
-    if r is None:
-        r = cosmo_params.R_SL(z1,z2)
-    
     for kinds in kinds_list:
         kind1, kind2 = kinds
     
         rho = compute_correlation_function(
-            cosmo_params = cosmo_params,
             CLASS_OUTPUT = CLASS_OUTPUT,
             z1 = z1,
             z2 = z2,
@@ -184,7 +171,6 @@ def compute_Pearson_coefficient(
 
 def compute_correlation_function(
     CLASS_OUTPUT,
-    cosmo_params,
     r = 0.,
     r_smooth = 0.,
     z1 = 0.,
@@ -203,9 +189,6 @@ def compute_correlation_function(
     ----------
     CLASS_OUTPUT: :class:`classy.Class`
         An object containing all the information from the CLASS calculation.
-    cosmo_params: :class:`~COSMO_PARAMS`
-        The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     r: float, optional
         The comoving distance in Mpc. Default is 0.
     r_smooth: float, optional
@@ -232,7 +215,6 @@ def compute_correlation_function(
     # Get transfer funcions
     transfer1, k_array = get_transfer_function(
         CLASS_OUTPUT = CLASS_OUTPUT,
-        cosmo_params = cosmo_params,
         kind = kind1,
         z = z1,
         r = r
@@ -242,13 +224,14 @@ def compute_correlation_function(
     else:    
         transfer2, k_array = get_transfer_function(
             CLASS_OUTPUT = CLASS_OUTPUT,
-            cosmo_params = cosmo_params,
             kind = kind2,
             z = z2,
             r = r
         )
     # Power spectrum of primordial curvature fluctuations
-    Delta_R_sq = cosmo_params.A_s*pow(k_array/0.05,cosmo_params.n_s-1.)
+    A_s = CLASS_OUTPUT.get_current_derived_parameters(["A_s"])["A_s"]
+    n_s = CLASS_OUTPUT.n_s()
+    Delta_R_sq = A_s*pow(k_array/0.05,n_s-1.)
     # Window functions
     with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
         W_k_array = window_function_for_correlation(k_array*r,kind1,kind2)
@@ -268,7 +251,6 @@ def compute_correlation_function(
 
 def get_transfer_function(
     CLASS_OUTPUT,
-    cosmo_params,
     kind,
     z = 0,
     r = 0
@@ -280,9 +262,6 @@ def get_transfer_function(
     ----------
     CLASS_OUTPUT: :class:`classy.Class`
         An object containing all the information from the CLASS calculation.
-    cosmo_params: :class:`~COSMO_PARAMS`
-        The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     kind: str
         Kind of transfer function to get: options are "density_m", "density_b"
         "v_parallel" and "v_perp".
@@ -300,7 +279,7 @@ def get_transfer_function(
     """
 
     # Extract transfer function at redshift z
-    k_CLASS = CLASS_OUTPUT.get_transfer(z=z)["k (h/Mpc)"]*cosmo_params.h # 1/Mpc
+    k_CLASS = CLASS_OUTPUT.get_transfer(z=z)["k (h/Mpc)"]*CLASS_OUTPUT.h() # 1/Mpc
     Transfer_z = CLASS_OUTPUT.get_transfer(z=z)
     if kind == "density_m":
         transfer_CLASS = Transfer_z["d_m"]
