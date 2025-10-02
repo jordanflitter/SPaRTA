@@ -153,7 +153,8 @@ class COSMO_POINT_DATA():
                 cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = self.redshift,
-                r_smooth = self.sim_params.Delta_L
+                r_smooth = self.sim_params.Delta_L,
+                kind = "velocity"
             )
         
     def evaluate_Pearson_coefficient(self,z1_data,r=None):
@@ -170,6 +171,7 @@ class COSMO_POINT_DATA():
         r: float, optional
             Comoving distance between the two points, in Mpc.
         """
+
         if not self.sim_params.NO_CORRELATIONS:
             # Interpolate!
             if self.sim_params.USE_INTERPOLATION_TABLES:
@@ -182,17 +184,19 @@ class COSMO_POINT_DATA():
                     print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_perp is rho={self.rho_v_perp}")
             # Integrate!
             else:
-                self.rho_v_parallel, self.rho_v_perp = cosmology.compute_Pearson_coefficient(
+                rho_dict = cosmology.compute_Pearson_coefficient(
                     cosmo_params=self.cosmo_params,
                     CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                     z1=z1_data.redshift,
                     z2=self.redshift,
-                    r_smooth = self.sim_params.Delta_L
+                    r_smooth = self.sim_params.Delta_L,
+                    kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
                 )
+                self.rho_v_parallel = rho_dict["v_parallel,v_parallel"]
+                self.rho_v_perp = rho_dict["v_perp,v_perp"]
         else:
             self.rho_v_parallel = 0.
             self.rho_v_perp = 0.
-                
     
     def draw_conditional_velocity_vector(self,z1_data):
         """
@@ -205,6 +209,7 @@ class COSMO_POINT_DATA():
             The data of the previous point.
         
         """
+        
         # Compute the 2-point correlation coefficients for the parallel and 
         # perpendicular components of the velocity field.
         self.evaluate_Pearson_coefficient(z1_data)
@@ -579,7 +584,8 @@ class ALL_PHOTONS_DATA():
                 cosmo_params = self.cosmo_params,
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = zi,
-                r_smooth = self.sim_params.Delta_L
+                r_smooth = self.sim_params.Delta_L,
+                kind = "velocity"
             )
         # Create correlation coefficients arrays for the velocities
         if not self.sim_params.NO_CORRELATIONS:
@@ -591,13 +597,16 @@ class ALL_PHOTONS_DATA():
                     # No need to compute all elements because we are mostly interested
                     # in small scales correlations
                     if zj > zi and zj_ind == zi_ind + 1:
-                        rho_parallel_matrix[zi_ind,zj_ind], rho_perp_matrix[zi_ind,zj_ind] = cosmology.compute_Pearson_coefficient(
+                        rho_dict = cosmology.compute_Pearson_coefficient(
                             cosmo_params=self.cosmo_params,
                             CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                             z1=zi,
                             z2=zj,
-                            r_smooth = self.sim_params.Delta_L
+                            r_smooth = self.sim_params.Delta_L,
+                            kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
                         )
+                        rho_parallel_matrix[zi_ind,zj_ind] = rho_dict["v_parallel,v_parallel"]
+                        rho_perp_matrix[zi_ind,zj_ind] = rho_dict["v_perp,v_perp"]
             # Symmetrize matrices and put 1 on the diagonal
             rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
             rho_perp_matrix += rho_perp_matrix.T + np.eye(len(z_array))

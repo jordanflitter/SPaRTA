@@ -68,11 +68,12 @@ def compute_RMS(
     cosmo_params,
     CLASS_OUTPUT,
     z,
-    r_smooth
+    r_smooth,
+    kind = "density_m"
     ):
 
     """
-    Compute 1D velocity rms at redshift z, smoothed on a scale r.
+    Compute the RMS of a field at redshift z, smoothed on a scale r_smooth.
     
     Parameters
     ----------
@@ -85,12 +86,19 @@ def compute_RMS(
         Redshift.
     r_smooth: float
         Smoothing radius, in Mpc.
+    kind: str, optional
+        The kind of field for the RMS is computed: options are "density_m", "density_b"
+        "v_parallel" and "v_perp" (the RMS of the last two is the same,
+        hence "velocity" is also accepted). Default is "density_m".
     
     Returns
     -------
     float:
-        The smoothed 1D velocity RMS, given in units of c. 
+        The RMS of the smoothed field.
     """
+
+    if kind == "velocity":
+        kind = "v_perp"
 
     variance = compute_correlation_function(
         cosmo_params = cosmo_params,
@@ -99,9 +107,8 @@ def compute_RMS(
         z2 = z,
         r = 0.,
         r_smooth = r_smooth,
-        kind1 = "v_perp",
-        kind2 = "v_perp",
-        normalization=False
+        kind1 = kind,
+        kind2 = kind,
     )
     return np.sqrt(variance) # dimensionless
 
@@ -111,12 +118,12 @@ def compute_Pearson_coefficient(
     z1,
     z2,
     r_smooth,
+    kinds_list,
     r = None
     ):
     
     """
-    Compute velocity correlation coefficients for parallel 
-    and perpendicular components, between two points at redshifts 
+    Compute the Pearson correlation coefficient for multiple fields at redshifts 
     z1 and z2.
     
     Parameters
@@ -132,45 +139,48 @@ def compute_Pearson_coefficient(
         Final redshift.
     r_smooth: float
         Smoothing radius, in Mpc.
+    kinds_list: list of tuples
+        A list of the form [(kind1,kind2),(kind3,kind4),...]
+        Each kind is a string specifying the type kind of the field for which the 
+        Pearson coefficient is evaluated: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
     r: float, optional
         Comoving distance between the two points, in Mpc.
     
     Returns
     -------
-    rho_v_parallel: float
-        Correlation coefficient for the parallel component of the velocity. 
-    rho_v_perp: float
-        Correlation coefficient for the perpendicular component of the velocity. 
+    dict:
+        Dictionary of the Pearson coeffcients. The keys of the dictionary are the strings in kinds_list,
+        e.g. "kind1,kind2", "kind3,kind4", etc.
     """
+
+    rho_dict = {}
+
     if r is None:
         r = cosmo_params.R_SL(z1,z2)
-    rho_v_parallel = compute_correlation_function(
-        cosmo_params = cosmo_params,
-        CLASS_OUTPUT = CLASS_OUTPUT,
-        z1 = z1,
-        z2 = z2,
-        r = r,
-        r_smooth = r_smooth,
-        kind1 = "v_parallel",
-        kind2 = "v_parallel"
-    )
-    rho_v_perp = compute_correlation_function(
-        cosmo_params = cosmo_params,
-        CLASS_OUTPUT = CLASS_OUTPUT,
-        z1 = z1,
-        z2 = z2,
-        r = r,
-        r_smooth = r_smooth,
-        kind1 = "v_perp",
-        kind2 = "v_perp"
-    )
-    # Sanity check: -1 <= rho <= 1
-    if rho_v_parallel**2 > 1:
-        print(f"Warning: At (z1,z2)={z1,z2} the correlation coefficient for v_parallel is rho={rho_v_parallel}")
-    if rho_v_perp**2 > 1:
-        print(f"Warning: At (z1,z2)={z1,z2} the correlation coefficient for v_perp is rho={rho_v_parallel}")
+    
+    for kinds in kinds_list:
+        kind1, kind2 = kinds
+    
+        rho = compute_correlation_function(
+            cosmo_params = cosmo_params,
+            CLASS_OUTPUT = CLASS_OUTPUT,
+            z1 = z1,
+            z2 = z2,
+            r = r,
+            r_smooth = r_smooth,
+            kind1 = kind1,
+            kind2 = kind2,
+            normalization = True
+        )
+    
+        # Sanity check: -1 <= rho <= 1
+        if rho**2 > 1:
+            print(f"Warning: At (z1,z2)={z1,z2} the Pearson correlation coefficient for kinds = ({kind1},{kind2}) is rho={rho}")
+        
+        rho_dict[f"{kind1},{kind2}"] = rho
     # Return output
-    return rho_v_parallel, rho_v_perp
+    return rho_dict
 
 def compute_correlation_function(
     CLASS_OUTPUT,
@@ -181,7 +191,7 @@ def compute_correlation_function(
     z2 = 0.,
     kind1 = "density_m",
     kind2 = "density_m",
-    normalization = True
+    normalization = False
     ):
     
     """
