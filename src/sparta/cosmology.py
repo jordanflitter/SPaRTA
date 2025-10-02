@@ -184,6 +184,27 @@ def compute_Pearson_coefficient(
                             kind='cubic',bounds_error=False,fill_value=0.)(k_arr) # 1/sec
     theta_b_z2 = interp1d(k_CLASS, theta_b_z2_CLASS,
                             kind='cubic',bounds_error=False,fill_value=0.)(k_arr) # 1/sec
+    
+    theta_b_z1 = np.exp(
+        interp1d(
+            np.log(k_CLASS), 
+            np.log(np.abs(theta_b_z1_CLASS)),
+            kind='cubic',
+            bounds_error=False,
+            fill_value="extrapolate"
+        )(np.log(k_arr))
+    )
+    theta_b_z2 = np.exp(
+        interp1d(
+            np.log(k_CLASS), 
+            np.log(np.abs(theta_b_z2_CLASS)),
+            kind='cubic',
+            bounds_error=False,
+            fill_value="extrapolate"
+        )(np.log(k_arr))
+    )
+
+
     # Define velocity transfer functions (division by sqrt(3) is because we want 1D transfer functions)
     v_b_z1 = theta_b_z1/k_arr/np.sqrt(3.) # dimensionless
     v_b_z2 = theta_b_z2/k_arr/np.sqrt(3.) # dimensionless
@@ -214,7 +235,6 @@ def compute_Pearson_coefficient(
     denominator *= intg.simpson(Delta_R_sq*v_b_z2*v_b_z2/k_arr, x=k_arr) # dimensionless
     denominator = np.sqrt(denominator)
     
-    #denominator = v1_1D_rms*v2_1D_rms
     rho_v_parallel /= denominator # dimensionless
     rho_v_perp /= denominator # dimensionless
     # Sanity check: -1 <= rho <= 1
@@ -224,3 +244,243 @@ def compute_Pearson_coefficient(
         print(f"Warning: At (z1,z2)={z1,z2} the correlation coefficient for v_perp is rho={rho_v_parallel}")
     # Return output
     return rho_v_parallel, rho_v_perp
+
+def compute_correlation_function(
+    CLASS_OUTPUT,
+    cosmo_params,
+    r = 0.,
+    r_smooth = 0.,
+    z1 = 0.,
+    z2 = 0.,
+    kind1 = "density_m",
+    kind2 = "density_m",
+    normalization = True
+    ):
+    
+    """
+    Compute the 2-point correlation function of a field of type kind1 at redshift z1
+    with a field of type kind2 at redshift z2. The fields can be smoothed by a top-hat
+    filter in real space with radius r_smooth.
+    
+    Parameters
+    ----------
+    CLASS_OUTPUT: :class:`classy.Class`
+        An object containing all the information from the CLASS calculation.
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+        Needs to be passed after CLASS was run.
+    r: float, optional
+        The comoving distance in Mpc. Default is 0.
+    r_smooth: float, optional
+        The smoothing radius in Mpc.
+    z1: float, optional
+        The redshift of field of type kind1. Default is 0.
+    z2: float, optional
+        The redshift of field of type kind2. Default is 0.    
+    kind1: str
+        The kind of the first field: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
+    kind2: str
+        The kind of the second field: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
+    normalization: bool
+        Whether to normalize the correlation function with the RMS.
+    
+    Returns
+    -------
+    float:
+        The 2-point correlation function.
+    """
+    
+    # Get transfer funcions
+    transfer1, k_array = get_transfer_function(
+        CLASS_OUTPUT = CLASS_OUTPUT,
+        cosmo_params = cosmo_params,
+        kind = kind1,
+        z = z1,
+        r = r
+    )
+    if z2 == z1 and kind2 == kind1:
+        transfer2 = transfer1
+    else:    
+        transfer2, k_array = get_transfer_function(
+            CLASS_OUTPUT = CLASS_OUTPUT,
+            cosmo_params = cosmo_params,
+            kind = kind2,
+            z = z2,
+            r = r
+        )
+    # Power spectrum of primordial curvature fluctuations
+    Delta_R_sq = cosmo_params.A_s*pow(k_array/0.05,cosmo_params.n_s-1.)
+    # Window functions
+    with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
+        W_k_array = window_function_for_correlation(k_array*r,kind1,kind2)
+        W_k_top_hat = top_hat_window_function(k_array*r_smooth)
+    # Smooth transfer functions
+    transfer1 *= W_k_top_hat
+    transfer2 *= W_k_top_hat
+    # Integrate to get the correlation function xi(r)
+    integrand = Delta_R_sq * transfer1 * transfer2 * W_k_array /k_array # Mpc
+    correlation = intg.simpson(integrand, x=k_array) # dimensionless
+    # Normalize if needed
+    if normalization:
+        correlation /= np.sqrt(intg.simpson(Delta_R_sq * transfer1 * transfer1 / k_array, x=k_array)) # dimensionless
+        correlation /= np.sqrt(intg.simpson(Delta_R_sq * transfer2 * transfer2 / k_array, x=k_array)) # dimensionless
+    # Return output
+    return correlation
+
+def get_transfer_function(
+    CLASS_OUTPUT,
+    cosmo_params,
+    kind,
+    z = 0,
+    r = 0
+):
+    """
+    Get the transfer function from the output of CLASS.
+    
+    Parameters
+    ----------
+    CLASS_OUTPUT: :class:`classy.Class`
+        An object containing all the information from the CLASS calculation.
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+        Needs to be passed after CLASS was run.
+    kind: str
+        Kind of transfer function to get: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
+    z: float, optional
+        The redshift of the transfer function. Default is 0.
+    r: float, optional
+        The comoving distance in Mpc (used for setting up k_array). Default is 0.
+    
+    Returns
+    -------
+    transfer: np.ndarray
+        The transfer function.
+    k_array: np.ndarray
+        An array of the wavenumbers associated with the transfer function.
+    """
+
+    # Extract transfer function at redshift z
+    k_CLASS = CLASS_OUTPUT.get_transfer(z=z)["k (h/Mpc)"]*cosmo_params.h # 1/Mpc
+    Transfer_z = CLASS_OUTPUT.get_transfer(z=z)
+    if kind == "density_m":
+        transfer_CLASS = Transfer_z["d_m"]
+    elif kind == "density_b":
+        transfer_CLASS = Transfer_z["d_b"]
+    elif kind == "v_parallel" or  kind == "v_perp":
+        transfer_CLASS = Transfer_z["t_b"]/k_CLASS/np.sqrt(3.) # dimensionless
+    else:
+        raise ValueError("'kind' can only be 'density_m', 'density_b', 'v_parallel'  or 'v_perp'.")
+
+    # Interpolate transfer function
+    if r > 0:
+        k_array = np.logspace(-4.,4.,10000)/r # 1/Mpc
+        k_array = np.concatenate((np.linspace(min(k_CLASS),min(k_array),100),k_array)) # 1/Mpc
+        k_array = np.unique(k_array) # 1/Mpc
+        k_array = np.sort(k_array) # 1/Mpc
+    else:
+        k_array = k_CLASS
+    # TODO: Normally the phase of the transfer function is not interesting because we usually compute auto-covariance.
+    #       It becomes relevant only when doing cross-covariance (e.g. delta with v_parallel)
+    #       It is a bit tricky to do logarithmic interpolation while keeping the phase information.
+    #       There's got to be a better way than what I'm doing here.
+    sign = float(2 * np.all(transfer_CLASS > 0) - 1)
+    transfer = sign * np.exp(
+        interp1d(
+            np.log(k_CLASS), 
+            np.log(np.abs(transfer_CLASS)),
+            kind='cubic',
+            bounds_error=False,
+            fill_value="extrapolate"
+        )(np.log(k_array))
+    )
+    return transfer, k_array
+
+def window_function_for_correlation(
+    kr,
+    kind1,
+    kind2,
+):
+    """
+    Compute the window function for the correlation function between two fields.
+    
+    Parameters
+    ----------
+    kr: float or np.ndarray
+        The argument of the window function.
+    kind1: str
+        The kind of the first field: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
+    kind2: str
+        The kind of the second field: options are "density_m", "density_b"
+        "v_parallel" and "v_perp".
+    
+    Returns
+    -------
+    float or np.ndarray
+        The desired window function.
+    """
+
+    if (
+        (kind1 == "density_m" or kind1 == "density_b") 
+        and 
+        (kind2 == "density_m" or kind2 == "density_b")
+        ):
+        return np.where(
+            kr < 1.e-3,
+            1.-(kr**2)/6.,
+            np.sin(kr)/kr
+        )
+    elif ((kind1 == "v_parallel") and (kind2 == "v_parallel")):
+        return np.where(
+            kr < 1.e-3,
+            1.-3.*(kr**2)/10.,
+            (3.*(kr**2-2.)*np.sin(kr)+6.*kr*np.cos(kr))/kr**3
+        )
+    elif ((kind1 == "v_perp") and (kind2 == "v_perp")):
+        return np.where(
+            kr < 1.e-3,
+            1.-(kr**2)/10.,
+            3.*(np.sin(kr)-kr*np.cos(kr))/kr**3
+        )
+    elif (
+        (
+            (kind1 == "density_m" or kind1 == "density_b") 
+            and 
+            (kind2 == "v_parallel")
+        )
+        or
+            (kind2 == "density_m" or kind2 == "density_b") 
+            and 
+            (kind1 == "v_parallel")
+            ):
+        return np.where(
+            kr < 1.e-3,
+            kr/np.sqrt(3.),
+            np.sqrt(3.)*(np.sin(kr)-kr*np.cos(kr))/kr**2
+        )
+    else:
+        return 0.
+
+def top_hat_window_function(kr):
+    """
+    Compute top-hat window function in real space.
+    
+    Parameters
+    ----------
+    kr: float or np.ndarray
+        The argument of the window function.
+    
+    Returns
+    -------
+    float or np.ndarray
+        Top-hat window function.
+    """
+
+    return np.where(
+        kr < 1.e-3,
+        1.-(kr**2)/10.,
+        3.*(np.sin(kr)-kr*np.cos(kr))/kr**3
+    )
