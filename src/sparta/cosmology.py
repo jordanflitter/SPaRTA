@@ -92,46 +92,25 @@ def compute_RMS(
         The smoothed 1D velocity RMS, given in units of c. 
     """
 
-    # Extract transfer function
-    k_CLASS = CLASS_OUTPUT.get_transfer(z=z)['k (h/Mpc)'][:]*cosmo_params.h # 1/Mpc
-    Transfer_z = CLASS_OUTPUT.get_transfer(z=z)
-    theta_b_z_CLASS = Transfer_z['t_b'][:] # 1/Mpc
-    # Interpolate transfer function
-    k_arr = np.logspace(-4.,4.,10000)/r_smooth
-    k_arr = np.concatenate((np.linspace(min(k_CLASS),min(k_arr),100),k_arr))
-    k_arr = np.unique(k_arr)
-    k_arr = np.sort(k_arr) # 1/Mpc
-    theta_b_z = interp1d(k_CLASS, theta_b_z_CLASS,
-                            kind='cubic',bounds_error=False,fill_value=0.)(k_arr) # 1/Mpc
-    # Define velocity transfer function (division by sqrt(3) is because we want 1D transfer function)
-    v_b_z = theta_b_z/k_arr/np.sqrt(3.) # dimensionless
-    # Power spectrum of primordial curvature fluctuations
-    Delta_R_sq = cosmo_params.A_s*pow(k_arr/0.05,cosmo_params.n_s-1.) # dimensionless
-    # Window function (for smoothing the fields at scale r)
-    kr_smooth = k_arr*r_smooth # dimensionless
-    with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
-        W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
-    # Taylor expansion for small kr
-    kr_small = kr_smooth[kr_smooth < 1.e-3]
-    W_k_top_hat[kr_smooth < 1.e-3] = 1.-(kr_small**2)/10.
-    # Multiply transfer function by window function to smooth the fiedls at scale r
-    # WARNING: this smoothing assumes that r is of the cell size!
-    v_b_z *= W_k_top_hat # dimensionless
-    # Integrate to get the variances
-    variance_velocity = intg.simpson(v_b_z**2 * Delta_R_sq /k_arr, x=k_arr) # dimensionless
-    # Return output
-    # We take the square root as we want the rms, not the variances.
-    return np.sqrt(variance_velocity) # dimensionless
+    variance = compute_correlation_function(
+        cosmo_params = cosmo_params,
+        CLASS_OUTPUT = CLASS_OUTPUT,
+        z1 = z,
+        z2 = z,
+        r = 0.,
+        r_smooth = r_smooth,
+        kind1 = "v_perp",
+        kind2 = "v_perp"
+    )
+    return np.sqrt(variance) # dimensionless
 
 def compute_Pearson_coefficient(
     cosmo_params,
     CLASS_OUTPUT,
     z1,
     z2,
-    v1_1D_rms,
-    v2_1D_rms,
     r_smooth,
-    r=None
+    r = None
     ):
     
     """
@@ -150,10 +129,6 @@ def compute_Pearson_coefficient(
         Initial redshift.
     z2: float
         Final redshift.
-    v1_1D_rms: float
-        1D velocity rms at z1, in units of c.
-    v2_1D_rms: float
-        1D velocity rms at z2, in units of c.
     r_smooth: float
         Smoothing radius, in Mpc.
     r: float, optional
@@ -166,77 +141,28 @@ def compute_Pearson_coefficient(
     rho_v_perp: float
         Correlation coefficient for the perpendicular component of the velocity. 
     """
-    # Extract transfer functions
-    k_CLASS = CLASS_OUTPUT.get_transfer(z=z1)['k (h/Mpc)'][:]*cosmo_params.h # 1/Mpc
-    Transfer_z1 = CLASS_OUTPUT.get_transfer(z=z1)
-    Transfer_z2 = CLASS_OUTPUT.get_transfer(z=z2)
-    theta_b_z1_CLASS = Transfer_z1['t_b'][:] # 1/Mpc
-    theta_b_z2_CLASS = Transfer_z2['t_b'][:] # 1/Mpc
-    # Comoving distance between z1 and z2
     if r is None:
-        r = cosmo_params.R_SL(z1,z2) # Mpc
-    # Interpolate transfer functions
-    k_arr = np.logspace(-4.,4.,10000)/r
-    k_arr = np.concatenate((np.linspace(min(k_CLASS),min(k_arr),100),k_arr))
-    k_arr = np.unique(k_arr)
-    k_arr = np.sort(k_arr) # 1/Mpc
-    theta_b_z1 = interp1d(k_CLASS, theta_b_z1_CLASS,
-                            kind='cubic',bounds_error=False,fill_value=0.)(k_arr) # 1/sec
-    theta_b_z2 = interp1d(k_CLASS, theta_b_z2_CLASS,
-                            kind='cubic',bounds_error=False,fill_value=0.)(k_arr) # 1/sec
-    
-    theta_b_z1 = np.exp(
-        interp1d(
-            np.log(k_CLASS), 
-            np.log(np.abs(theta_b_z1_CLASS)),
-            kind='cubic',
-            bounds_error=False,
-            fill_value="extrapolate"
-        )(np.log(k_arr))
+        r = cosmo_params.R_SL(z1,z2)
+    rho_v_parallel = compute_correlation_function(
+        cosmo_params = cosmo_params,
+        CLASS_OUTPUT = CLASS_OUTPUT,
+        z1 = z1,
+        z2 = z2,
+        r = r,
+        r_smooth = r_smooth,
+        kind1 = "v_parallel",
+        kind2 = "v_parallel"
     )
-    theta_b_z2 = np.exp(
-        interp1d(
-            np.log(k_CLASS), 
-            np.log(np.abs(theta_b_z2_CLASS)),
-            kind='cubic',
-            bounds_error=False,
-            fill_value="extrapolate"
-        )(np.log(k_arr))
+    rho_v_perp = compute_correlation_function(
+        cosmo_params = cosmo_params,
+        CLASS_OUTPUT = CLASS_OUTPUT,
+        z1 = z1,
+        z2 = z2,
+        r = r,
+        r_smooth = r_smooth,
+        kind1 = "v_perp",
+        kind2 = "v_perp"
     )
-
-
-    # Define velocity transfer functions (division by sqrt(3) is because we want 1D transfer functions)
-    v_b_z1 = theta_b_z1/k_arr/np.sqrt(3.) # dimensionless
-    v_b_z2 = theta_b_z2/k_arr/np.sqrt(3.) # dimensionless
-    # Window functions
-    kr = k_arr*r # dimensionless
-    kr_smooth = k_arr*r_smooth # dimensionless
-    with np.errstate(divide='ignore',invalid='ignore'): # Don't show division by 0 warnings
-        W_k_top_hat = 3.*(np.sin(kr_smooth)-kr_smooth*np.cos(kr_smooth))/kr_smooth**3 # dimensionless
-        W_k_parallel = (3.*(kr**2-2.)*np.sin(kr)+6.*kr*np.cos(kr))/kr**3 # dimensionless
-        W_k_perp = 3.*(np.sin(kr)-kr*np.cos(kr))/kr**3 # dimensionless
-    # Taylor expansion for small kr
-    kr_small = kr[kr < 1.e-3]
-    kr_smooth_small = kr_smooth[kr_smooth < 1.e-3]
-    W_k_top_hat[kr_smooth < 1.e-3] = 1.-(kr_smooth_small**2)/10.
-    W_k_parallel[kr < 1.e-3]= 1.-3.*(kr_small**2)/10.
-    W_k_perp[kr < 1.e-3] = 1.-(kr_small**2)/10.
-    # Multiply transfer functions by window function to smooth the fiedls at scale r.
-    # WARNING: this smoothing assumes that r is of the cell size!
-    v_b_z1 *= W_k_top_hat # dimensionless
-    v_b_z2 *= W_k_top_hat # dimensionless
-    # Power spectrum of primordial curvature fluctuations
-    Delta_R_sq = cosmo_params.A_s*pow(k_arr/0.05,cosmo_params.n_s-1.)
-    # Calculate correlation coefficients
-    rho_v_parallel = intg.simpson(v_b_z1*v_b_z2* Delta_R_sq * W_k_parallel/ k_arr,x=k_arr) # dimensionless
-    rho_v_perp = intg.simpson(v_b_z1*v_b_z2* Delta_R_sq * W_k_perp/ k_arr,x=k_arr) # dimensionless
-    
-    denominator = intg.simpson(Delta_R_sq*v_b_z1*v_b_z1/k_arr, x=k_arr) # dimensionless
-    denominator *= intg.simpson(Delta_R_sq*v_b_z2*v_b_z2/k_arr, x=k_arr) # dimensionless
-    denominator = np.sqrt(denominator)
-    
-    rho_v_parallel /= denominator # dimensionless
-    rho_v_perp /= denominator # dimensionless
     # Sanity check: -1 <= rho <= 1
     if rho_v_parallel**2 > 1:
         print(f"Warning: At (z1,z2)={z1,z2} the correlation coefficient for v_parallel is rho={rho_v_parallel}")
@@ -382,6 +308,16 @@ def get_transfer_function(
         k_array = np.sort(k_array) # 1/Mpc
     else:
         k_array = k_CLASS
+        # This array follows the same spacing transitions in the wavenumbers
+        # listed in Transfers_z0.dat in 21cmFAST, but I added more samples in order to compute
+        # more precisely the variance
+        k_array = np.concatenate(
+                (
+                    np.logspace(-5.15, -1.49, 50),
+                    np.logspace(-1.45, -0.258, 80),
+                    np.logspace(-0.2083, 3.049, 100),
+                )
+        )
     # TODO: Normally the phase of the transfer function is not interesting because we usually compute auto-covariance.
     #       It becomes relevant only when doing cross-covariance (e.g. delta with v_parallel)
     #       It is a bit tricky to do logarithmic interpolation while keeping the phase information.

@@ -187,8 +187,6 @@ class COSMO_POINT_DATA():
                     CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                     z1=z1_data.redshift,
                     z2=self.redshift,
-                    v1_1D_rms=z1_data.velocity_1D_rms,
-                    v2_1D_rms=self.velocity_1D_rms,
                     r_smooth = self.sim_params.Delta_L
                 )
         else:
@@ -598,8 +596,6 @@ class ALL_PHOTONS_DATA():
                             CLASS_OUTPUT=self.cosmo_params.CLASS_OUTPUT,
                             z1=zi,
                             z2=zj,
-                            v1_1D_rms=rms_array[zi_ind],
-                            v2_1D_rms=rms_array[zj_ind],
                             r_smooth = self.sim_params.Delta_L
                         )
             # Symmetrize matrices and put 1 on the diagonal
