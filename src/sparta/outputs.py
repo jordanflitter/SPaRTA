@@ -203,10 +203,13 @@ class COSMO_POINT_DATA():
         """
 
         if not self.sim_params.NO_CORRELATIONS:
+            if r is None:
+                r = self.cosmo_params.R_SL(z1_data.redshift,self.redshift)
             # Interpolate!
             if self.sim_params.USE_INTERPOLATION_TABLES:
-                self.rho_v_parallel = self.cosmo_params.interpolate_rho_parallel(self.redshift,z1_data.redshift)[0,0]
-                self.rho_v_perp = self.cosmo_params.interpolate_rho_perp(self.redshift,z1_data.redshift)[0,0]
+                self.rho_v_parallel = self.cosmo_params.interpolate_rho_parallel(r,0)[0,0]
+                self.rho_v_perp = self.cosmo_params.interpolate_rho_perp(r,0)[0,0]
+
                 # Sanity check: -1 <= rho <= 1
                 if self.rho_v_parallel**2 > 1.:
                     print(f"Warning: At (z1,z2)={z1_data.redshift,self.redshift} the correlation coefficient for v_parallel is rho={self.rho_v_parallel}")
@@ -218,7 +221,7 @@ class COSMO_POINT_DATA():
                     CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                     z1 = z1_data.redshift,
                     z2 = self.redshift,
-                    r = self.cosmo_params.R_SL(z1_data.redshift,self.redshift),
+                    r = r,
                     r_smooth = self.sim_params.Delta_L,
                     kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
                 )
@@ -596,7 +599,6 @@ class ALL_PHOTONS_DATA():
         coefficients.
         """
         
-        print("Now making interpolation tables...")
         # Create a redshift array that is identical to the redshift array
         # in the simulation (it only depends on Delta_L)
         z_end = (1.+self.z_abs)*self.nu_stop-1.
@@ -607,7 +609,7 @@ class ALL_PHOTONS_DATA():
         while z_list[-1] < 1.02*z_end:
             z_list.append(self.cosmo_params.R_SL_inverse(z_list[-1],self.sim_params.Delta_L))
         z_array = np.array(z_list)
-        # Create a velocity rms array for each redshift in z_array
+        # Create interpolation table for the velocity RMS
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
             rms_array[zi_ind] = correlations.compute_RMS(
@@ -616,34 +618,43 @@ class ALL_PHOTONS_DATA():
                 r_smooth = self.sim_params.Delta_L,
                 kind = "velocity"
             )
-        # Create correlation coefficients arrays for the velocities
-        if not self.sim_params.NO_CORRELATIONS:
-            rho_parallel_matrix = np.zeros((len(z_array),len(z_array)))
-            rho_perp_matrix = np.zeros((len(z_array),len(z_array)))
-            for zi_ind, zi in enumerate(z_array):
-                for zj_ind, zj in enumerate(z_array):
-                    # To save time, we only compute the upper elements of the matrix.
-                    # No need to compute all elements because we are mostly interested
-                    # in small scales correlations
-                    if zj > zi and zj_ind == zi_ind + 1:
-                        rho_dict = correlations.compute_Pearson_coefficient(
-                            CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
-                            z1 = zi,
-                            z2 = zj,
-                            r = self.cosmo_params.R_SL(zi,zj),
-                            r_smooth = self.sim_params.Delta_L,
-                            kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
-                        )
-                        rho_parallel_matrix[zi_ind,zj_ind] = rho_dict["v_parallel,v_parallel"]
-                        rho_perp_matrix[zi_ind,zj_ind] = rho_dict["v_perp,v_perp"]
-            # Symmetrize matrices and put 1 on the diagonal
-            rho_parallel_matrix += rho_parallel_matrix.T + np.eye(len(z_array))
-            rho_perp_matrix += rho_perp_matrix.T + np.eye(len(z_array))
-        # Create interpolation tables
         self.cosmo_params.interpolate_RMS = interp1d(z_array, rms_array, kind='cubic')
+        # Create interpolation tables for the Pearson coefficient
         if not self.sim_params.NO_CORRELATIONS:
-            self.cosmo_params.interpolate_rho_parallel = RectBivariateSpline(z_array, z_array, rho_parallel_matrix)
-            self.cosmo_params.interpolate_rho_perp = RectBivariateSpline(z_array, z_array, rho_perp_matrix)
+            r_array = np.linspace(0,10*self.sim_params.Delta_L,100) # Mpc
+            r_array = np.append(r_array,self.sim_params.Delta_L) # Mpc
+            r_array = np.unique(r_array) # Mpc
+            r_array = np.sort(r_array) # Mpc
+            rho_parallel_array = np.zeros_like(r_array)
+            rho_perp_array = np.zeros_like(r_array)
+            # The Pearson coefficient seems to be very weakly dependent on redshift
+            # (relative differences of 1e-6 when 1-rho is examined!).
+            # For setting the interpolation table, we need to choose an arbitrary redshift.
+            # We choose z_abs.
+            z_ = self.z_abs
+            for r_ind, r in enumerate(r_array):
+                rho_dict = correlations.compute_Pearson_coefficient(
+                    CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                    z1 = z_,
+                    z2 = self.cosmo_params.R_SL_inverse(z_,r),
+                    r = r,
+                    r_smooth = self.sim_params.Delta_L,
+                    kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
+                )
+                rho_parallel_array[r_ind] = rho_dict["v_parallel,v_parallel"]
+                rho_perp_array[r_ind] = rho_dict["v_perp,v_perp"]
+            # NOTE: why do I do 2D interpolation if the data is 1D?
+            #       Apparently, 2D interpolation is more efficient! (very weird, I know)
+            self.cosmo_params.interpolate_rho_parallel = RectBivariateSpline(
+                r_array,
+                np.array([0,1,2,3]),
+                np.repeat(rho_parallel_array, 4, axis=0).reshape(len(r_array),4)
+            )
+            self.cosmo_params.interpolate_rho_perp = RectBivariateSpline(
+                r_array,
+                np.array([0,1,2,3]),
+                np.repeat(rho_perp_array, 4, axis=0).reshape(len(r_array),4)
+            )
         # Save also z_array because sometimes the interpolation fails 
         # as the input is above the interpolation range
         self.cosmo_params.redshift_grid = z_array
