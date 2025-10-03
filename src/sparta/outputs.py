@@ -172,14 +172,16 @@ class COSMO_POINT_DATA():
         Compute the smoothed 1D velocity rms for this point. 
         Interpolation is performed if USE_INTERPOLATION_TABLES = True.
         """
+        not_computed = True
         # Interpolate!
         if self.sim_params.USE_INTERPOLATION_TABLES:
             try:
                 self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.redshift,0)[0,0]
-            except ValueError:
-                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1],0)[0,0]
+                not_computed = False
+            except ValueError: # Interpolation can fail because of Doppler shifts that brings us to higher redshifts
+                not_computed = True
         # Integrate!
-        else:
+        elif not_computed:
             self.velocity_1D_rms = correlations.compute_RMS(
                 CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
                 z = self.redshift,
@@ -599,17 +601,9 @@ class ALL_PHOTONS_DATA():
         coefficients.
         """
         
-        # Create a redshift array that is identical to the redshift array
-        # in the simulation (it only depends on Delta_L)
-        z_end = (1.+self.z_abs)*self.nu_stop-1.
-        if not self.sim_params.STRAIGHT_LINE:
-            z_list = [self.z_abs, (1.+self.z_abs)*(1.+self.sim_params.Delta_nu_initial)-1.]
-        else:
-            z_list = [self.z_abs]
-        while z_list[-1] < 1.02*z_end:
-            z_list.append(self.cosmo_params.R_SL_inverse(z_list[-1],self.sim_params.Delta_L))
-        z_array = np.array(z_list)
         # Create interpolation table for the velocity RMS
+        z_end = (1.+self.z_abs)*self.nu_stop-1.
+        z_array = np.linspace(self.z_abs,1.02*z_end,150) # We take a slightly higher z_end because of Doppler shifts that brings us to higher redshifts
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
             rms_array[zi_ind] = correlations.compute_RMS(
@@ -618,12 +612,13 @@ class ALL_PHOTONS_DATA():
                 r_smooth = self.sim_params.Delta_L,
                 kind = "velocity"
             )
+        # NOTE: why do I do 2D interpolation if the data is 1D?
+        #       Apparently, 2D interpolation is more efficient! (very weird, I know)    
         self.cosmo_params.interpolate_RMS = RectBivariateSpline(
                 z_array,
                 np.array([0,1,2,3]),
                 np.repeat(rms_array, 4, axis=0).reshape(len(z_array),4)
             )
-        
         # Create interpolation tables for the Pearson coefficient
         if not self.sim_params.NO_CORRELATIONS:
             r_array = np.linspace(0,10*self.sim_params.Delta_L,100) # Mpc
@@ -660,9 +655,6 @@ class ALL_PHOTONS_DATA():
                 np.array([0,1,2,3]),
                 np.repeat(rho_perp_array, 4, axis=0).reshape(len(r_array),4)
             )
-        # Save also z_array because sometimes the interpolation fails 
-        # as the input is above the interpolation range
-        self.cosmo_params.redshift_grid = z_array
     
     def append(self,photon_data):
         """
