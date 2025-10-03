@@ -8,6 +8,7 @@ from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
 from . import correlations
 from . Lyman_alpha import compute_Lya_cross_section
+from . inputs import COSMO_PARAMS
 
 def plot_cross_section(
     T=0.,
@@ -92,6 +93,34 @@ def plot_RMS(
     ax = None,
     **kwargs
 ):
+    """
+    Plot the RMS of a smoothed field as a function of redshift.
+    
+    Parameters
+    ----------
+    CLASS_OUTPUT: :class:`classy.Class`
+        An object containing all the information from the CLASS calculation.
+    r_smooth: float
+        The smoothing radius in Mpc.
+    kind: str, optional
+        The kind of field for which the RMS is computed: options are "density_m", "density_b"
+        "v_parallel" and "v_perp" (the RMS of the last two is the same,
+        hence "velocity" is also accepted). Default is "density_m".
+    z_min: float, optional
+        The minimum redshift in the plot. Default is 0.
+    z_max: float, optional
+        The maximum redshift in the plot. Default is 35.
+    ax: Axes, optional
+        The matplotlib Axes object on which to plot. Otherwise, created.
+    kwargs:
+        Optional keywords to pass to :func:`maplotlib.plot`.
+    
+    Returns
+    -------
+    fig, ax:
+        figure and axis objects from matplotlib.
+    """
+
     z_array = np.linspace(z_min,z_max,100)
     rms_array = np.zeros_like(z_array)
     for ind, z in enumerate(z_array):
@@ -123,10 +152,55 @@ def plot_Pearson_coefficient(
     kinds = ("density_m","density_m"),
     r_min = 0.,
     r_max = 10.,
+    evolve_z2 = False,
     log_x = False,
     ax = None,
     **kwargs
 ):
+    """
+    Plot the Pearson coefficient for two smoothed fields as a function of comoving distance.
+    
+    Parameters
+    ----------
+    CLASS_OUTPUT: :class:`classy.Class`
+        An object containing all the information from the CLASS calculation.
+    z: float
+        The redshift of the field of kind1 (see below). If evolve_z2 is True,
+        it is also the redshift of the field of kind2.
+    r_smooth: float
+        The smoothing radius in Mpc.
+    kinds: tuple, optional
+        A tuple of the form (kind1,kind2).
+        Each kind is a string specifying the kind of the field for which the 
+        Pearson coefficient is evaluated: options are "density_m", "density_b"
+        "v_parallel" and "v_perp". Default is ("density_m","density_m").
+    r_min: float, optional
+        The minimum comoving distance in the plot, in Mpc. Default is 0.
+    r_max: float, optional
+        The maximum comoving distance in the plot, in Mpc. Default is 10.
+    evolve_z2: bool, optional
+        If this flag is true, z2 (the redshift of the field of kind2) is evolved with the comoving 
+        distance. Othwerwise, it is set to be z.
+    log_x: bool, optional
+        Whether to plot the distance axis in the plot with logarithmic scale. Default is False.
+    ax: Axes, optional
+        The matplotlib Axes object on which to plot. Otherwise, created.
+    kwargs:
+        Optional keywords to pass to :func:`maplotlib.plot`.
+    
+    Returns
+    -------
+    fig, ax:
+        figure and axis objects from matplotlib.
+    """
+    if evolve_z2:
+        cosmo_params = COSMO_PARAMS(
+            {
+                "h": CLASS_OUTPUT.h(),
+                "Omega_m": CLASS_OUTPUT.Omega0_cdm() + CLASS_OUTPUT.Omega_b(),
+                "Omega_b": CLASS_OUTPUT.Omega_b(),
+            }
+        )
     kind1, kind2 = kinds
     if log_x:
         r_array = np.logspace(np.log10(r_min),np.log10(r_max),100)
@@ -134,10 +208,14 @@ def plot_Pearson_coefficient(
         r_array = np.linspace(r_min,r_max,100)
     rho_array = np.zeros_like(r_array)
     for ind, r in enumerate(r_array):
+        if evolve_z2:
+            z2 = cosmo_params.R_SL_inverse(z,r)
+        else:
+            z2 = z
         rho_array[ind] = correlations.compute_Pearson_coefficient(
             CLASS_OUTPUT = CLASS_OUTPUT,
             z1 = z,
-            z2 = z,
+            z2 = z2,
             r = r,
             r_smooth = r_smooth,
             kinds_list = [kinds]
@@ -166,10 +244,56 @@ def plot_correlation_function(
     kinds = ("density_m","density_m"),
     r_min = 0.,
     r_max = 10.,
+    evolve_z2 = False,
     log_x = False,
     ax = None,
     **kwargs
 ):
+    """
+    Plot the correlation function for two smoothed fields as a function of comoving distance.
+    
+    Parameters
+    ----------
+    CLASS_OUTPUT: :class:`classy.Class`
+        An object containing all the information from the CLASS calculation.
+    z: float
+        The redshift of the field of kind1 (see below). If evolve_z2 is True,
+        it is also the redshift of the field of kind2.
+    r_smooth: float
+        The smoothing radius in Mpc.
+    kinds: tuple, optional
+        A tuple of the form (kind1,kind2).
+        Each kind is a string specifying the kind of the field for which the 
+        Pearson coefficient is evaluated: options are "density_m", "density_b"
+        "v_parallel" and "v_perp". Default is ("density_m","density_m").
+    r_min: float, optional
+        The minimum comoving distance in the plot, in Mpc. Default is 0.
+    r_max: float, optional
+        The maximum comoving distance in the plot, in Mpc. Default is 10.
+    evolve_z2: bool, optional
+        If this flag is true, z2 (the redshift of the field of kind2) is evolved with the comoving 
+        distance. Othwerwise, it is set to be z.
+    log_x: bool, optional
+        Whether to plot the distance axis in the plot with logarithmic scale. Default is False.
+    ax: Axes, optional
+        The matplotlib Axes object on which to plot. Otherwise, created.
+    kwargs:
+        Optional keywords to pass to :func:`maplotlib.plot`.
+    
+    Returns
+    -------
+    fig, ax:
+        figure and axis objects from matplotlib.
+    """
+
+    if evolve_z2:
+        cosmo_params = COSMO_PARAMS(
+            {
+                "h": CLASS_OUTPUT.h(),
+                "Omega_m": CLASS_OUTPUT.Omega0_cdm() + CLASS_OUTPUT.Omega_b(),
+                "Omega_b": CLASS_OUTPUT.Omega_b(),
+            }
+        )
     kind1, kind2 = kinds
     if log_x:
         r_array = np.logspace(np.log10(r_min),np.log10(r_max),100)
@@ -177,10 +301,14 @@ def plot_correlation_function(
         r_array = np.linspace(r_min,r_max,100)
     xi_array = np.zeros_like(r_array)
     for ind, r in enumerate(r_array):
+        if evolve_z2:
+            z2 = cosmo_params.R_SL_inverse(z,r)
+        else:
+            z2 = z
         xi_array[ind] = correlations.compute_correlation_function(
             CLASS_OUTPUT = CLASS_OUTPUT,
             z1 = z,
-            z2 = z,
+            z2 = z2,
             r = r,
             r_smooth = r_smooth,
             kind1 = kind1,

@@ -23,7 +23,7 @@ def compute_RMS(
     r_smooth: float
         Smoothing radius, in Mpc.
     kind: str, optional
-        The kind of field for the RMS is computed: options are "density_m", "density_b"
+        The kind of field for which the RMS is computed: options are "density_m", "density_b"
         "v_parallel" and "v_perp" (the RMS of the last two is the same,
         hence "velocity" is also accepted). Default is "density_m".
     
@@ -74,7 +74,7 @@ def compute_Pearson_coefficient(
         Smoothing radius, in Mpc.
     kinds_list: list of tuples
         A list of the form [(kind1,kind2),(kind3,kind4),...]
-        Each kind is a string specifying the type kind of the field for which the 
+        Each kind is a string specifying the kind of the field for which the 
         Pearson coefficient is evaluated: options are "density_m", "density_b"
         "v_parallel" and "v_perp".
     
@@ -109,6 +109,7 @@ def compute_Pearson_coefficient(
     # Return output
     return rho_dict
 
+# TODO: make this function accept kinds_list (list of tuples), just like in compute_Pearson_coefficient
 def compute_correlation_function(
     CLASS_OUTPUT,
     r = 0.,
