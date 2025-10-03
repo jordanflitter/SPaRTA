@@ -2,7 +2,7 @@
 
 import numpy as np
 import tqdm
-from scipy.interpolate import interp1d, RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline
 from numpy.linalg import norm
 from . import correlations, Lyman_alpha, plotting
 
@@ -175,9 +175,9 @@ class COSMO_POINT_DATA():
         # Interpolate!
         if self.sim_params.USE_INTERPOLATION_TABLES:
             try:
-                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.redshift)
+                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.redshift,0)[0,0]
             except ValueError:
-                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1])
+                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.cosmo_params.redshift_grid[-1],0)[0,0]
         # Integrate!
         else:
             self.velocity_1D_rms = correlations.compute_RMS(
@@ -618,7 +618,12 @@ class ALL_PHOTONS_DATA():
                 r_smooth = self.sim_params.Delta_L,
                 kind = "velocity"
             )
-        self.cosmo_params.interpolate_RMS = interp1d(z_array, rms_array, kind='cubic')
+        self.cosmo_params.interpolate_RMS = RectBivariateSpline(
+                z_array,
+                np.array([0,1,2,3]),
+                np.repeat(rms_array, 4, axis=0).reshape(len(z_array),4)
+            )
+        
         # Create interpolation tables for the Pearson coefficient
         if not self.sim_params.NO_CORRELATIONS:
             r_array = np.linspace(0,10*self.sim_params.Delta_L,100) # Mpc
