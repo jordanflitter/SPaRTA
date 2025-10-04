@@ -37,15 +37,15 @@ from .post_processing import (
     SIM_DATA,
     HISTOGRAM_DATA
 )
-from . correlations import(
+from .correlations import(
     compute_correlation_function,
     compute_Pearson_coefficient,
     compute_RMS
 )
-from . Lyman_alpha import(
+from .Lyman_alpha import(
     compute_Lya_cross_section,
 )
-from . plotting import(
+from .plotting import(
     plot_cross_section,
     plot_RMS,
     plot_Pearson_coefficient,

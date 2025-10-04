@@ -2,9 +2,9 @@
 
 import numpy as np
 import tqdm
-from scipy.interpolate import RectBivariateSpline
 from numpy.linalg import norm
 from . import correlations, Lyman_alpha, plotting
+from .interpolation import INTERPOLATOR
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -90,7 +90,8 @@ class COSMO_POINT_DATA():
                  position_vector = np.zeros(3),
                  rotation_matrix = np.eye(3),
                  apparent_frequency = None,
-                 velocity_1D_rms = None
+                 velocity_1D_rms = None,
+                 interpolator = None,
     ):
         self.redshift = redshift
         self.cosmo_params = cosmo_params
@@ -100,6 +101,7 @@ class COSMO_POINT_DATA():
         self.rotation_matrix = rotation_matrix
         self.apparent_frequency = apparent_frequency
         self.velocity_1D_rms = velocity_1D_rms
+        self.interpolator = interpolator
     
     def copy(self):
         """
@@ -111,29 +113,16 @@ class COSMO_POINT_DATA():
             A copy of the content of this point
         """
         
-        if self.sim_params.INCLUDE_VELOCITIES:
-            velocity_vector = self.velocity_vector.copy(),
-            rotation_matrix = self.rotation_matrix.copy(),
-            velocity_1D_rms = self.velocity_1D_rms
-            # This is weird, for some reason those variables are a
-            # tuple of a single element. I'm making it an array below
-            velocity_vector = velocity_vector[0]
-            rotation_matrix = rotation_matrix[0]
-        else:
-            velocity_vector = None,
-            rotation_matrix = None,
-            velocity_1D_rms = None
-
-        # Return output
         return COSMO_POINT_DATA(
             redshift=self.redshift,
             cosmo_params=self.cosmo_params,
             sim_params=self.sim_params,
-            velocity_vector=velocity_vector,
+            velocity_vector=self.velocity_vector.copy() if not self.velocity_vector is None else None,
             position_vector=self.position_vector.copy(),
-            rotation_matrix=rotation_matrix,
+            rotation_matrix=self.rotation_matrix.copy(),
             apparent_frequency=self.apparent_frequency,
-            velocity_1D_rms=velocity_1D_rms
+            velocity_1D_rms=self.velocity_1D_rms,
+            interpolator=self.interpolator
         )
     
     def rotate(self,mu,phi):
@@ -176,7 +165,7 @@ class COSMO_POINT_DATA():
         # Interpolate!
         if self.sim_params.USE_INTERPOLATION_TABLES:
             try:
-                self.velocity_1D_rms = self.cosmo_params.interpolate_RMS(self.redshift,0)[0,0]
+                self.velocity_1D_rms = self.interpolator.interpolate_RMS(self.redshift,0)[0,0]
                 not_computed = False
             except ValueError: # Interpolation can fail because of Doppler shifts that brings us to higher redshifts
                 not_computed = True
@@ -209,8 +198,8 @@ class COSMO_POINT_DATA():
                 r = self.cosmo_params.R_SL(z1_data.redshift,self.redshift)
             # Interpolate!
             if self.sim_params.USE_INTERPOLATION_TABLES:
-                self.rho_v_parallel = self.cosmo_params.interpolate_rho_parallel(r,0)[0,0]
-                self.rho_v_perp = self.cosmo_params.interpolate_rho_perp(r,0)[0,0]
+                self.rho_v_parallel = self.interpolator.interpolate_rho_parallel(r,0)[0,0]
+                self.rho_v_perp = self.interpolator.interpolate_rho_perp(r,0)[0,0]
 
                 # Sanity check: -1 <= rho <= 1
                 if self.rho_v_parallel**2 > 1.:
@@ -567,6 +556,13 @@ class ALL_PHOTONS_DATA():
             z_stop = (1.+self.z_abs)*self.nu_stop - 1. # final redshift
             r_stop = self.cosmo_params.R_SL(self.z_abs,z_stop) # Mpc
             self.sim_params.x_stop = r_stop/self.cosmo_params.r_star(self.z_abs) # dimensionless
+        # Set interpolator
+        self.interpolator = INTERPOLATOR(
+            cosmo_params = cosmo_params,
+            sim_params = sim_params,
+            z_abs = self.z_abs,
+            nu_stop = self.nu_stop
+        )
         # Compute the characteristic spectral width that is associated with the
         # IGM temperature.
         # Note that in our dimensionless units, Delta_nu also equals to the
@@ -578,82 +574,12 @@ class ALL_PHOTONS_DATA():
         else:
             self.Delta_nu = 0.
             self.a = np.inf
-        # Make interpolation tables for the velocity rms and correlation 
+        # Make interpolation tables for the velocity rms and correlation
         # coefficients
         if self.sim_params.INCLUDE_VELOCITIES and self.sim_params.USE_INTERPOLATION_TABLES:
-            self.make_interpolation_tables()
+            self.interpolator.initialize_velocity_interpolation_tables()
         if self.sim_params.ANISOTROPIC_SCATTERING and not self.sim_params.STRAIGHT_LINE:
-            self.make_mu_distribution_tables()
-    
-    def make_mu_distribution_tables(self):
-        """
-        Make interpolation tables for the inverse mu CDF, according to Eq. (20)
-        in arXiv: 2311.03447.
-        """
-        
-        self.mu_table_core = Lyman_alpha.inverse_mu_CDF(11./24.,3./24.)
-        self.mu_table_wing = Lyman_alpha.inverse_mu_CDF(3./8.,3./8.)
-    
-    def make_interpolation_tables(self):
-        """
-        Make interpolation tables for the velocity rms and correlation 
-        coefficients.
-        """
-        
-        # Create interpolation table for the velocity RMS
-        z_end = (1.+self.z_abs)*self.nu_stop-1.
-        z_array = np.linspace(self.z_abs,1.02*z_end,150) # We take a slightly higher z_end because of Doppler shifts that brings us to higher redshifts
-        rms_array = np.zeros_like(z_array)
-        for zi_ind, zi in enumerate(z_array):
-            rms_array[zi_ind] = correlations.compute_RMS(
-                CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
-                z = zi,
-                r_smooth = self.sim_params.Delta_L,
-                kind = "velocity"
-            )
-        # NOTE: why do I do 2D interpolation if the data is 1D?
-        #       Apparently, 2D interpolation is more efficient! (very weird, I know)    
-        self.cosmo_params.interpolate_RMS = RectBivariateSpline(
-                z_array,
-                np.array([0,1,2,3]),
-                np.repeat(rms_array, 4, axis=0).reshape(len(z_array),4)
-            )
-        # Create interpolation tables for the Pearson coefficient
-        if not self.sim_params.NO_CORRELATIONS:
-            r_array = np.linspace(0,10*self.sim_params.Delta_L,100) # Mpc
-            r_array = np.append(r_array,self.sim_params.Delta_L) # Mpc
-            r_array = np.unique(r_array) # Mpc
-            r_array = np.sort(r_array) # Mpc
-            rho_parallel_array = np.zeros_like(r_array)
-            rho_perp_array = np.zeros_like(r_array)
-            # The Pearson coefficient seems to be very weakly dependent on redshift
-            # (relative differences of 1e-6 when 1-rho is examined!).
-            # For setting the interpolation table, we need to choose an arbitrary redshift.
-            # We choose z_abs.
-            z_ = self.z_abs
-            for r_ind, r in enumerate(r_array):
-                rho_dict = correlations.compute_Pearson_coefficient(
-                    CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
-                    z1 = z_,
-                    z2 = self.cosmo_params.R_SL_inverse(z_,r),
-                    r = r,
-                    r_smooth = self.sim_params.Delta_L,
-                    kinds_list = [("v_parallel","v_parallel"), ("v_perp","v_perp")]
-                )
-                rho_parallel_array[r_ind] = rho_dict["v_parallel,v_parallel"]
-                rho_perp_array[r_ind] = rho_dict["v_perp,v_perp"]
-            # NOTE: why do I do 2D interpolation if the data is 1D?
-            #       Apparently, 2D interpolation is more efficient! (very weird, I know)
-            self.cosmo_params.interpolate_rho_parallel = RectBivariateSpline(
-                r_array,
-                np.array([0,1,2,3]),
-                np.repeat(rho_parallel_array, 4, axis=0).reshape(len(r_array),4)
-            )
-            self.cosmo_params.interpolate_rho_perp = RectBivariateSpline(
-                r_array,
-                np.array([0,1,2,3]),
-                np.repeat(rho_perp_array, 4, axis=0).reshape(len(r_array),4)
-            )
+            self.interpolator.make_mu_distribution_tables()
     
     def append(self,photon_data):
         """
@@ -781,6 +707,8 @@ class ALL_PHOTONS_DATA():
                                       sim_params=self.sim_params,
                                       apparent_frequency=1.)
         if self.sim_params.INCLUDE_VELOCITIES:
+            if self.sim_params.USE_INTERPOLATION_TABLES:
+                z_abs_data.interpolator = self.interpolator
             # Compute the smoothed 1D velocity RMS in z_abs
             z_abs_data.evaluate_RMS()
             # Draw a random velocity at z_abs.
@@ -824,18 +752,13 @@ class ALL_PHOTONS_DATA():
                 # velocity at the new z_prime
                 z_prime_old_data = z_prime_data.copy()
                 # Update z_prime
-                next_redshift = self.cosmo_params.R_SL_inverse(z_prime_data.redshift,self.sim_params.Delta_L)
-                z_prime_data = COSMO_POINT_DATA(redshift=next_redshift,
-                                                cosmo_params=self.cosmo_params,
-                                                sim_params=self.sim_params)
-                # We don't need to track the photon's position at every z',
+                # NOTE: We don't need to track the photon's position at every z',
                 # and instead we keep it to be in z_prime_old (which was set to
                 # be at z_i)
-                z_prime_data.position_vector = z_prime_old_data.position_vector
+                next_redshift = self.cosmo_params.R_SL_inverse(z_prime_data.redshift,self.sim_params.Delta_L)
+                z_prime_data.redshift = next_redshift
                 if self.sim_params.INCLUDE_VELOCITIES:
-                    # Update roatation matrix in z'
-                    z_prime_data.rotation_matrix = z_prime_old_data.rotation_matrix
-                    # Compute the smoothed 1D velocity RMS in z'
+                    # Update the smoothed 1D velocity RMS in z'
                     z_prime_data.evaluate_RMS()
                     # Draw velocity at z_prime based on the velocity vector at z_prime_old
                     z_prime_data.draw_conditional_velocity_vector(z_prime_old_data)
@@ -870,9 +793,9 @@ class ALL_PHOTONS_DATA():
                     # Draw random mu from the phase function,
                     # given by Eq. (20) in arXiv: 2311.03447
                     if abs(z_i_data.apparent_frequency-1.) < 0.2*self.Delta_nu:
-                        mu_rnd = self.mu_table_core(np.array([np.random.rand()]))[0]
+                        mu_rnd = self.interpolator.mu_table_core(np.array([np.random.rand()]))[0]
                     else:
-                        mu_rnd = self.mu_table_wing(np.array([np.random.rand()]))[0]
+                        mu_rnd = self.interpolator.mu_table_wing(np.array([np.random.rand()]))[0]
                 else:
                     # Draw random mu from a uniform distribution
                     mu_rnd = -1.+2.*np.random.rand()
