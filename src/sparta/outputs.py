@@ -233,7 +233,7 @@ class COSMO_POINT_DATA():
             self.rho_v_parallel = 0.
             self.rho_v_perp = 0.
     
-    def draw_conditional_velocity_vector(self,z1_data):
+    def draw_conditional_velocity_vector(self,z1_data,r=None):
         """
         Draw a conditional velocity vector for this point based on the 
         velocity vector of the previous sample.
@@ -242,12 +242,13 @@ class COSMO_POINT_DATA():
         ----------
         z1_data: :class:`~COSMO_POINT_DATA`
             The data of the previous point.
-        
+        r: float, optional
+            Comoving distance between the two points, in Mpc.
         """
 
-        # Compute the 2-point correlation coefficients for the parallel and 
+        # Compute the Pearson coefficients for the parallel and 
         # perpendicular components of the velocity field.
-        self.evaluate_Pearson_coefficient(z1_data)
+        self.evaluate_Pearson_coefficient(z1_data,r)
         # Comopute the conditional mean and variance for the current velocity
         # components, based on the previous point.
         # For two Gaussian random variables X and Y, the conditional mean (mu) 
@@ -406,33 +407,31 @@ class PHOTON_POINTS_DATA():
         # Correct initial frequency due to temperature
         if self.sim_params.INCLUDE_TEMPERATURE:
             # Draw a random thermal velocity from Gaussian distribution
-            # Note: here we do not divide the scale by sqrt(2) as we do in simulate_one_photon.
+            # NOTE: here we do not divide the scale by sqrt(2) as we do in simulate_one_photon.
             #       This is because we are looking for the relative thermal velocity, so the variance is two times larger
             #       (since the thermal velocities are not correlated)
             Delta_nu = np.sqrt(2*k_B*self.cosmo_params.T/self.cosmo_params.m_b/c**2) # dimensionless (in units of nu_Lya)
             v_thermal_rel_parallel = np.random.normal(scale=Delta_nu)
             z_ini_data.apparent_frequency /= (1.-v_thermal_rel_parallel)
-        if self.sim_params.INCLUDE_VELOCITIES:
-            # Compute the smoothed 1D velocity RMS in z_ini
-            z_ini_data.evaluate_RMS()
-            # Draw velocity at z_prime based on the velocity vector at z_prime_old
-            z_ini_data.draw_conditional_velocity_vector(z_abs_data)
-            # Compute parallel component of relative velocity with respect to the last point
-            # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
-            v_rel_parallel = z_ini_data.velocity_vector[0] - z_abs_data.velocity_vector[0] # dimensionless
-            # Correct initial frequency due to peculiar velocity
-            # TODO: We still don't know the distance of the photon from the origin.
-            #       Therefore, the Pearson coefficient is computed while assuming that r=R_SL(z_abs,z_1), which for the initial
-            #       redshift difference is r ~ 0.5 Mpc. However, it is very unlikely that the photon is located from the origin
-            #       by that distance (it should be closer due to multiple scattering), so the Pearson coefficient should be higher
-            #       than what we compute (i.e. closer to 1), and the relative velocity should be lower, so the Doppler shift is less
-            #       significant. This could be changed if the 2D interpolation table for the Pearson coefficient depends on z1 and r
-            #       (not on z1 and z2). 
-            z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
         # Draw the position vector from uncorrelated Gaussian distributions
         tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_star(self.z_abs) # dimensionless
         scale = np.sqrt(2./9.*tilde_nu**3)*self.cosmo_params.r_star(self.z_abs) # Mpc
         z_ini_data.position_vector = np.random.normal(scale=scale,size=3) # Mpc
+        # Correct initial frequency due to peculiar velocity
+        # NOTE: it would be more consistent to draw the poisition vector after the frequency was corrected due to peculiar velocities.
+        # However, the distamce from the origin is expected to be small, so peculiar relative velocities are very small and barely matter.
+        # We do it like this in order to use the distance from the origin for the calculation of the Pearson coefficient (and for drawing 
+        # the conditional velocity vector)
+        if self.sim_params.INCLUDE_VELOCITIES:
+            # Compute the smoothed 1D velocity RMS in z_ini
+            z_ini_data.evaluate_RMS()
+            # Draw velocity at z_ini based on the velocity vector at z_abs
+            z_ini_data.draw_conditional_velocity_vector(z_abs_data,r=norm(z_ini_data.position_vector))
+            # Compute parallel component of relative velocity with respect to the last point
+            # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
+            v_rel_parallel = z_ini_data.velocity_vector[0] - z_abs_data.velocity_vector[0] # dimensionless
+            # Correct initial frequency due to peculiar velocity
+            z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
         # Return output
         return z_ini_data
         
