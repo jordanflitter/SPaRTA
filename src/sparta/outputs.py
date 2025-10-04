@@ -3,7 +3,8 @@
 import numpy as np
 import tqdm
 from numpy.linalg import norm
-from . import correlations, Lyman_alpha, plotting
+from . import correlations, plotting
+from .Lyman_alpha import compute_Lya_cross_section, draw_from_voigt_distribution
 from .interpolation import INTERPOLATOR
 
 #%% Define some global parameters
@@ -315,9 +316,9 @@ class COSMO_POINT_DATA():
         """
         # Compute cross section
         if self.sim_params.INCLUDE_TEMPERATURE:
-            sigma_Lya = Lyman_alpha.compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,self.cosmo_params.T,self.sim_params.CROSS_SECTION) # m^2
         else:
-            sigma_Lya = Lyman_alpha.compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
+            sigma_Lya = compute_Lya_cross_section(self.apparent_frequency,0.,self.sim_params.CROSS_SECTION) # m^2
         # Number density of neutral hydrogen
         # Note we assume homogeneity here
         n_HI = self.cosmo_params.n_H_z0*self.cosmo_params.x_HI*(1.+self.redshift)**3 # m^-3
@@ -399,8 +400,7 @@ class PHOTON_POINTS_DATA():
             # NOTE: here we do not divide the scale by sqrt(2) as we do in simulate_one_photon.
             #       This is because we are looking for the relative thermal velocity, so the variance is two times larger
             #       (since the thermal velocities are not correlated)
-            Delta_nu = np.sqrt(2*k_B*self.cosmo_params.T/self.cosmo_params.m_b/c**2) # dimensionless (in units of nu_Lya)
-            v_thermal_rel_parallel = np.random.normal(scale=Delta_nu)
+            v_thermal_rel_parallel = np.random.normal(scale=self.cosmo_params.Delta_nu_D)
             z_ini_data.apparent_frequency /= (1.-v_thermal_rel_parallel)
         # Draw the position vector from uncorrelated Gaussian distributions
         tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_star(self.z_abs) # dimensionless
@@ -423,7 +423,6 @@ class PHOTON_POINTS_DATA():
             z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
         # Return output
         return z_ini_data
-        
         
     def plot_photon_trajectory(
         self,
@@ -563,21 +562,10 @@ class ALL_PHOTONS_DATA():
             z_abs = self.z_abs,
             nu_stop = self.nu_stop
         )
-        # Compute the characteristic spectral width that is associated with the
-        # IGM temperature.
-        # Note that in our dimensionless units, Delta_nu also equals to the
-        # rms of the thermal velocity, and we take advantage of this when we
-        # drawn a random thermal velocity.
-        if self.sim_params.INCLUDE_TEMPERATURE and (self.cosmo_params.T > 0.):
-            self.Delta_nu = np.sqrt(2*k_B*self.cosmo_params.T/self.cosmo_params.m_b/c**2) # dimensionless (in units of nu_Lya)
-            self.a = A_alpha_dimensionless/4/np.pi/self.Delta_nu
-        else:
-            self.Delta_nu = 0.
-            self.a = np.inf
-        # Make interpolation tables for the velocity rms and correlation
-        # coefficients
+        # Initialize interpolation tables for the velocity rms and Pearson coefficients
         if self.sim_params.INCLUDE_VELOCITIES and self.sim_params.USE_INTERPOLATION_TABLES:
             self.interpolator.initialize_velocity_interpolation_tables()
+        # Initialize interpolation tables for anisotropic scattering
         if self.sim_params.ANISOTROPIC_SCATTERING and not self.sim_params.STRAIGHT_LINE:
             self.interpolator.make_mu_distribution_tables()
     
@@ -792,7 +780,7 @@ class ALL_PHOTONS_DATA():
                 if self.sim_params.ANISOTROPIC_SCATTERING:
                     # Draw random mu from the phase function,
                     # given by Eq. (20) in arXiv: 2311.03447
-                    if abs(z_i_data.apparent_frequency-1.) < 0.2*self.Delta_nu:
+                    if abs(z_i_data.apparent_frequency-1.) < 0.2*self.cosmo_params.Delta_nu_D:
                         mu_rnd = self.interpolator.mu_table_core(np.array([np.random.rand()]))[0]
                     else:
                         mu_rnd = self.interpolator.mu_table_wing(np.array([np.random.rand()]))[0]
@@ -820,11 +808,17 @@ class ALL_PHOTONS_DATA():
                 if self.sim_params.INCLUDE_RECOIL and self.sim_params.INCLUDE_TEMPERATURE:
                     # Draw a random thermal velocity vector. The perpendicular component is drawn from a normal distribution
                     # while the parallel component is drawn from Eq. (25) in arXiv: 2311.03447.
-                    # Note that in our dimensionless units, Delta_nu also equals the rms of thermal velocity
+                    # Note that in our dimensionless units, Delta_nu_D also equals the rms of thermal velocity
                     # Also note that we only need two components for the thermal velocity, not three
-                    v_thermal_perp = np.random.normal(scale=self.Delta_nu/np.sqrt(2.)) # dimensionless
+                    v_thermal_perp = np.random.normal(scale=self.cosmo_params.Delta_nu_D/np.sqrt(2.)) # dimensionless
                     if self.cosmo_params.T > 0.:
-                        v_thermal_parallel = self.Delta_nu * Lyman_alpha.draw_from_voigt_distribution((z_i_data.apparent_frequency-1.)/self.Delta_nu,self.a) # dimensionless
+                        v_thermal_parallel = (
+                            self.cosmo_params.Delta_nu_D * 
+                            draw_from_voigt_distribution(
+                                (z_i_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_D,
+                                self.cosmo_params.a_T
+                            )
+                        ) # dimensionless
                     else:
                         v_thermal_parallel = 0.
                     # Update frequency according to Eq. (23) in arXiv: 2311.03447

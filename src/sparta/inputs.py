@@ -6,10 +6,12 @@ from classy import Class
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
 c = 2.99792458e8 # Speed of light in m/sec
+k_B = 1.3806504e-23 # Boltzmann Constant in J/K
 nu_Lya = 2.47e15 # Lya frequency in Hz
 A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to the 1s state in Hz
 Tcmb0 = 2.728 # CMB temperature in Kelvin
 m_H = 1.6735575e-27 # Hydrogen atom mass in kg
+A_alpha_dimensionless = A_alpha/nu_Lya
 
 #%% Class for setting simulation parameters
 
@@ -141,7 +143,10 @@ class COSMO_PARAMS():
         # Hydrogen number density at z=0
         self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # m^-3
         # Mean baryon mass. It is assumed that helium is doubly ionized when hydrogen is ionized
-        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # 
+        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # kg
+        # Voigt profile parameters
+        self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
+        self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
         # Return output
         return CLASS_OUTPUT
         
