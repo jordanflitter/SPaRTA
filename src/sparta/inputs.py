@@ -108,6 +108,13 @@ class COSMO_PARAMS():
         self.Omega_c = self.Omega_m - self.Omega_b # CDM portion
         self.rho_crit = 1.8788e-26 * self.h**2 # Critical energy density in kg/m^3
         self.rho_b0 = self.rho_crit*self.Omega_b # Baryon energy density in kg/m^3
+        self.YHe = 0.2455 # Helium mass fraction (rho_He/rho_b)
+        self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # # Hydrogen number density at z=0 in m^-3
+        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # # Mean baryon mass in kg. It is assumed that helium is doubly ionized when hydrogen is ionized
+        # Voigt profile parameters
+        self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
+        self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
+        
     
     def run_CLASS(self):
         """
@@ -137,7 +144,19 @@ class COSMO_PARAMS():
         CLASS_OUTPUT = Class()
         CLASS_OUTPUT.set(CLASS_params)
         CLASS_OUTPUT.compute()
-        self.CLASS_OUTPUT = CLASS_OUTPUT
+        # Return output
+        return CLASS_OUTPUT
+    
+    def update_cosmo_params_with_CLASS(self,CLASS_OUTPUT):
+        """
+        Update some of the cosmological parameters with output from CLASS (due to more precise calculation of Y_He).
+        
+        Parameters
+        ----------
+        CLASS_OUTPUT: :class:`classy.Class`
+            An object containing all the information from the CLASS calculation.
+        
+        """
         # Helium mass fraction (rho_He/rho_b)
         self.YHe = CLASS_OUTPUT.get_current_derived_parameters(['YHe'])['YHe']
         # Hydrogen number density at z=0
@@ -147,8 +166,7 @@ class COSMO_PARAMS():
         # Voigt profile parameters
         self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
         self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
-        # Return output
-        return CLASS_OUTPUT
+        
         
     def Delta_nu_star(self,z_abs):
         """

@@ -24,6 +24,7 @@ class INTERPOLATOR():
                  sim_params,
                  z_abs,
                  nu_stop,
+                 CLASS_OUTPUT,
                  interpolate_RMS = None,
                  interpolate_rho_parallel = None,
                  interpolate_rho_perp = None,
@@ -35,6 +36,7 @@ class INTERPOLATOR():
         self.sim_params = sim_params
         self.z_abs = z_abs
         self.nu_stop = nu_stop
+        self.CLASS_OUTPUT = CLASS_OUTPUT if sim_params.USE_INTERPOLATION_TABLES else None
         self.interpolate_RMS = interpolate_RMS
         self.interpolate_rho_parallel = interpolate_rho_parallel
         self.interpolate_rho_perp = interpolate_rho_perp
@@ -52,7 +54,7 @@ class INTERPOLATOR():
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):
             rms_array[zi_ind] = correlations.compute_RMS(
-                CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                CLASS_OUTPUT = self.CLASS_OUTPUT,
                 z = zi,
                 r_smooth = self.sim_params.Delta_L,
                 kind = "velocity"
@@ -79,7 +81,7 @@ class INTERPOLATOR():
             z_ = self.z_abs
             for r_ind, r in enumerate(r_array):
                 rho_dict = correlations.compute_Pearson_coefficient(
-                    CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                    CLASS_OUTPUT = self.CLASS_OUTPUT,
                     z1 = z_,
                     z2 = self.cosmo_params.R_SL_inverse(z_,r),
                     r = r,
@@ -100,10 +102,12 @@ class INTERPOLATOR():
                 np.array([0,1,2,3]),
                 np.repeat(rho_perp_array, 4, axis=0).reshape(len(r_array),4)
             )
+            # Destroy the CLASS_OUTPUT field (no need to save it after the velocity interpolation tables were initialized)
+            self.CLASS_OUTPUT = None
     
-    def make_mu_distribution_tables(self):
+    def initialize_mu_distribution_tables(self):
         """
-        Make interpolation tables for the inverse mu CDF, according to Eq. (20)
+        Initialize interpolation tables for the inverse mu CDF, according to Eq. (20)
         in arXiv: 2311.03447.
         """
         

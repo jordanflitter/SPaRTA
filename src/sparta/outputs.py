@@ -87,6 +87,7 @@ class COSMO_POINT_DATA():
                  redshift,
                  cosmo_params,
                  sim_params,
+                 CLASS_OUTPUT = None,
                  velocity_vector = None,
                  position_vector = np.zeros(3),
                  rotation_matrix = np.eye(3),
@@ -97,6 +98,7 @@ class COSMO_POINT_DATA():
         self.redshift = redshift
         self.cosmo_params = cosmo_params
         self.sim_params = sim_params
+        self.CLASS_OUTPUT = CLASS_OUTPUT if not sim_params.USE_INTERPOLATION_TABLES else None
         self.velocity_vector = velocity_vector
         self.position_vector = position_vector
         self.rotation_matrix = rotation_matrix
@@ -118,12 +120,13 @@ class COSMO_POINT_DATA():
             redshift=self.redshift,
             cosmo_params=self.cosmo_params,
             sim_params=self.sim_params,
-            velocity_vector=self.velocity_vector.copy() if not self.velocity_vector is None else None,
-            position_vector=self.position_vector.copy(),
-            rotation_matrix=self.rotation_matrix.copy(),
-            apparent_frequency=self.apparent_frequency,
-            velocity_1D_rms=self.velocity_1D_rms,
-            interpolator=self.interpolator
+            CLASS_OUTPUT = self.CLASS_OUTPUT,
+            velocity_vector = self.velocity_vector.copy() if not self.velocity_vector is None else None,
+            position_vector = self.position_vector.copy(),
+            rotation_matrix = self.rotation_matrix.copy(),
+            apparent_frequency = self.apparent_frequency,
+            velocity_1D_rms = self.velocity_1D_rms,
+            interpolator = self.interpolator
         )
     
     def rotate(self,mu,phi):
@@ -173,7 +176,7 @@ class COSMO_POINT_DATA():
         # Integrate!
         elif not_computed:
             self.velocity_1D_rms = correlations.compute_RMS(
-                CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                CLASS_OUTPUT = self.CLASS_OUTPUT,
                 z = self.redshift,
                 r_smooth = self.sim_params.Delta_L,
                 kind = "velocity"
@@ -210,7 +213,7 @@ class COSMO_POINT_DATA():
             # Integrate!
             else:
                 rho_dict = correlations.compute_Pearson_coefficient(
-                    CLASS_OUTPUT = self.cosmo_params.CLASS_OUTPUT,
+                    CLASS_OUTPUT = self.CLASS_OUTPUT,
                     z1 = z1_data.redshift,
                     z2 = self.redshift,
                     r = r,
@@ -555,19 +558,25 @@ class ALL_PHOTONS_DATA():
             z_stop = (1.+self.z_abs)*self.nu_stop - 1. # final redshift
             r_stop = self.cosmo_params.R_SL(self.z_abs,z_stop) # Mpc
             self.sim_params.x_stop = r_stop/self.cosmo_params.r_star(self.z_abs) # dimensionless
+        # Run CLASS
+        self.CLASS_OUTPUT = cosmo_params.run_CLASS()
+        cosmo_params.update_cosmo_params_with_CLASS(self.CLASS_OUTPUT)
         # Set interpolator
         self.interpolator = INTERPOLATOR(
             cosmo_params = cosmo_params,
             sim_params = sim_params,
             z_abs = self.z_abs,
-            nu_stop = self.nu_stop
+            nu_stop = self.nu_stop,
+            CLASS_OUTPUT = self.CLASS_OUTPUT
         )
         # Initialize interpolation tables for the velocity rms and Pearson coefficients
         if self.sim_params.INCLUDE_VELOCITIES and self.sim_params.USE_INTERPOLATION_TABLES:
             self.interpolator.initialize_velocity_interpolation_tables()
+            # Destroy the CLASS_OUTPUT field (no need to save it after the velocity interpolation tables were initialized)
+            self.CLASS_OUTPUT = None
         # Initialize interpolation tables for anisotropic scattering
         if self.sim_params.ANISOTROPIC_SCATTERING and not self.sim_params.STRAIGHT_LINE:
-            self.interpolator.make_mu_distribution_tables()
+            self.interpolator.initialize_mu_distribution_tables()
     
     def append(self,photon_data):
         """
@@ -695,8 +704,9 @@ class ALL_PHOTONS_DATA():
                                       sim_params=self.sim_params,
                                       apparent_frequency=1.)
         if self.sim_params.INCLUDE_VELOCITIES:
+            z_abs_data.interpolator = self.interpolator
             if self.sim_params.USE_INTERPOLATION_TABLES:
-                z_abs_data.interpolator = self.interpolator
+                z_abs_data.CLASS_OUTPUT = self.CLASS_OUTPUT
             # Compute the smoothed 1D velocity RMS in z_abs
             z_abs_data.evaluate_RMS()
             # Draw a random velocity at z_abs.
