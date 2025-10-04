@@ -700,14 +700,8 @@ def plot_histogram(
                             np.array([histogram_data.y_bins[-1]+dr/2.])))
     # Plot 1D histogram of the data, normalized to 1
     if histogram_data.quantity == 'distance':
+        # Normalize distribution
         r_array = histogram_data.y_bins # dimensionless
-        # Ensure that the bin at 0 and 1 are empty
-        f_array[1] += f_array[0]
-        f_array[0] = 0.
-        if not histogram_data.sim_params.STRAIGHT_LINE:
-            f_array[-2] += f_array[-1]
-            f_array[-1] = 0.
-        # Normalize
         f_array /= intg.simpson(f_array, x=r_array) # dimensionless
         # Plot!
         ax.bar(edges[:-1],f_array,width=np.diff(edges),**kwargs)
@@ -715,8 +709,8 @@ def plot_histogram(
         ax.set_ylabel('Radial distribution',fontsize=25)
         ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
     elif histogram_data.quantity == 'velocity':
+        # Normalize distribution
         v_array = histogram_data.y_bins # dimensionless
-        # Normalize
         f_array /= intg.simpson(f_array, x=v_array) # dimensionless
         # Plot!
         ax.bar(edges[:-1],f_array,width=np.diff(edges),**kwargs)

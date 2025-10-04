@@ -89,7 +89,7 @@ class SIM_DATA():
                     # If we want to include intermediate points, we linearly interpolate 
                     # the position vector between z_i and z_{i+1} as we know that the photon
                     # has traveled in a straight line between two adjacent scattering events
-                    # Note: we also linearly interpolate the velocity vector, but this is not precise! 
+                    # NOTE: we also linearly interpolate the velocity vector, but this is not precise! 
                     if intermediate_pts:
                         if j < len(photon_data.points_data)-1:
                             z_i_plus1_data = photon_data.points_data[j+1]
@@ -157,7 +157,7 @@ class SIM_DATA():
     
     def get_histogram(self,
                       x_res = 0.1,
-                      N_bins = 21):
+                      N_bins = 12):
 
         """
         Get 2D histogram from data.
@@ -165,9 +165,9 @@ class SIM_DATA():
         Parameters
         ----------
         x_res: float, optional
-            Resolution (width) of the x_em bins.
+            Resolution (width) of the x_em bins. Default is 0.1.
         N_bins: int, optioanl
-            Number of bins in the 2D histogram in the quantity-axis (y-axis).
+            Number of bins in the 2D histogram in the quantity-axis (y-axis). Default is 12.
         
         Returns
         -------
@@ -181,8 +181,7 @@ class SIM_DATA():
         x_edges = np.linspace(x_res/2.,max_x+x_res/2.,int(np.round(max_x/x_res))+1)
         # Set y_edges
         if self.quantity == 'distance':
-            # I want that the first and last bins will be 0 and 1, with even spaces between the N_bins
-            y_edges = np.linspace(0.,1.+1./(N_bins-1.),N_bins+1)-1./(2.*(N_bins-1.))
+            y_edges = np.linspace(0.,1.,N_bins+1)
         else:
             y_edges = np.linspace(min(self.y_list),max(self.y_list),N_bins+1)
         # Get 2D histogram of the data
@@ -433,13 +432,6 @@ class HISTOGRAM_DATA():
         if self.quantity == 'distance':
             # Normalize distribution
             r_array = self.y_bins # dimensionless
-            # Ensure that the bin at 0 and 1 are empty
-            f_array[1] += f_array[0]
-            f_array[0] = 0.
-            if not self.sim_params.STRAIGHT_LINE:
-                f_array[-2] += f_array[-1]
-                f_array[-1] = 0.
-            # Normalize
             f_array /= intg.simpson(f_array, x=r_array) # dimensionless
             # Guess parameters for initialization.
             alpha_initial = 1.+pow(x_em,1/2)
@@ -450,12 +442,12 @@ class HISTOGRAM_DATA():
             alpha, beta, = curve_fit(beta_dist.pdf,r_array,f_array,initial_guess,bounds=bounds)[0]
             dist_params = (alpha, beta)
         elif self.quantity == 'velocity':
+            # Normalize distribution
             v_array = self.y_bins # dimensionless
-            # Normalize
             f_array /= intg.simpson(f_array, x=v_array) # dimensionless
             # Guess parameters for initialization.
             # We guess the Gaussian parameters from linear theory
-            # Note: in theory, the standard deviation of the relative velocity
+            # NOTE: in theory, the standard deviation of the relative velocity
             #       should be sqrt[<v_abs^2> + <v_em^2> - 2*rho*<v_abs^2>^{1/2}*<v_em^2>^{1/2}].
             #       Because rho that is computed in compute_2_point_correlation
             #       smoothes the velocity field at a radius that corresponds to
