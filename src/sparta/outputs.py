@@ -16,7 +16,6 @@ nu_Lya = 2.47e15 # Lya frequency in Hz
 A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to the 1s state in Hz
 m_H = 1.6735575e-27 # Hydrogen atom mass in kg
 A_alpha_dimensionless = A_alpha/nu_Lya
-Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
 
 def calculate_rotation_matrix(mu,phi):
     """
@@ -342,7 +341,6 @@ class PHOTON_POINTS_DATA():
         Data of the first point in the simulation (the absorption point).
     cosmo_params: :class:`~COSMO_PARAMS`
         The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     sim_params: :class:`~SIM_PARAMS`
         The simulation parameters.
     random_seed: float
@@ -356,14 +354,19 @@ class PHOTON_POINTS_DATA():
                  z_abs_data,
                  cosmo_params,
                  sim_params,
-                 random_seed
+                 random_seed,
+                 interpolator,
+                 CLASS_OUTPUT
                  
     ):
         self.z_abs = z_abs_data.redshift
+        self.z_abs_data = z_abs_data
         self.cosmo_params = cosmo_params
         self.sim_params = sim_params
         self.points_data = [z_abs_data]
         self.random_seed = random_seed
+        self.interpolator = interpolator
+        self.CLASS_OUTPUT = CLASS_OUTPUT
     
     def append(self,point_data):
         """
@@ -390,8 +393,7 @@ class PHOTON_POINTS_DATA():
         """
         
         # Copy the content of z_abs_data into z_ini_data.
-        z_abs_data = self.points_data[0]
-        z_ini_data = z_abs_data.copy()
+        z_ini_data = self.z_abs_data.copy()
         # Find the next redshift from the initial frequency shift
         z_ini = (1.+self.z_abs)*(1.+ self.sim_params.Delta_nu_initial) - 1.
         z_ini_data.redshift = z_ini
@@ -418,15 +420,166 @@ class PHOTON_POINTS_DATA():
             # Compute the smoothed 1D velocity RMS in z_ini
             z_ini_data.evaluate_RMS()
             # Draw velocity at z_ini based on the velocity vector at z_abs
-            z_ini_data.draw_conditional_velocity_vector(z_abs_data,r=norm(z_ini_data.position_vector))
+            z_ini_data.draw_conditional_velocity_vector(self.z_abs_data,r=norm(z_ini_data.position_vector))
             # Compute parallel component of relative velocity with respect to the last point
             # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
-            v_rel_parallel = z_ini_data.velocity_vector[0] - z_abs_data.velocity_vector[0] # dimensionless
+            v_rel_parallel = z_ini_data.velocity_vector[0] - self.z_abs_data.velocity_vector[0] # dimensionless
             # Correct initial frequency due to peculiar velocity
             z_ini_data.apparent_frequency /= (1.-v_rel_parallel)
         # Return output
         return z_ini_data
+    
+    def simulate_one_photon(self,random_seed):
+        """
+        Simulate one photon, given a random seed.
         
+        Parameters
+        ----------
+        random_seed: int
+            The random seed of this photon.
+        
+        This is the heart of the code. Given the random seed, a random velocity
+        vector is drawn at z_abs, where the apparent frequency of the photon
+        is initialized to Lyman alpha. The photon then propoagates backwards 
+        in time and a random optical depth is drawn from exp(-tau) distribution. 
+        During its trajectory, the frequency of the photon is blueshifted to 
+        higher frequencies. Once the photon has traversed a distance that 
+        corresponds to an optical depth that is greater than the threshold, 
+        the photon scatters and gains a new random direction. The data of each 
+        scattering point (which can be viewed as a potential source of emission) 
+        is added to the object. This process continues until the apparent 
+        photon's frequency crosses Lyman beta.
+        
+        """
+        
+        # Set random seed for this photon
+        np.random.seed(random_seed)
+        if self.sim_params.INCLUDE_VELOCITIES:
+            # Draw a random velocity at z_abs.
+            # Velocities are dimensionless in this code as they are normalized by c.
+            self.z_abs_data.velocity_vector = np.random.normal(scale=self.z_abs_data.velocity_1D_rms,size=3) # dimensionless
+        # Draw the first position of the photon outside the origin.
+        # This is the diffusion regime, where analytical result can be used.
+        if not self.sim_params.STRAIGHT_LINE:
+            z_ini_data = self.draw_first_point()
+            self.append(z_ini_data.copy())
+            # Initialize z_i to be at z_ini
+            # Each z_i corresponds to a new scattering point
+            z_i_data = z_ini_data.copy()
+        else:
+            z_i_data = self.z_abs_data.copy()
+        # Compute tau integrand at z_ini
+        dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
+        # Scatter the photon until we reached final frequency
+        while z_i_data.apparent_frequency < self.sim_params.nu_stop:
+            # Draw random optical depth from an exponential distribution
+            tau_rnd = -np.log(np.random.rand())
+            # Initialize numerical integral for tau
+            tau_integral = 0.
+            dtau_2_dL_prev = dtau_2_dL_curr # 1/m
+            # Initialize z' to be at z_i
+            # z' is a dummy variable, used for the numerical integration of tau 
+            z_prime_data = z_i_data.copy()
+            # Calculate the optical depth numerically, until we crossed the
+            # randomly drawn threshold value
+            while tau_integral < tau_rnd and z_prime_data.apparent_frequency < self.sim_params.nu_stop:
+                # Update tau integrand
+                dtau_2_dL_prev = dtau_2_dL_curr # 1/m
+                # Set z_prime_old to be z_prime
+                # We will use the velocity in z_prime_old to draw a correlated
+                # velocity at the new z_prime
+                z_prime_old_data = z_prime_data.copy()
+                # Update z_prime
+                # NOTE: We don't need to track the photon's position at every z',
+                # and instead we keep it to be in z_prime_old (which was set to
+                # be at z_i)
+                next_redshift = self.cosmo_params.R_SL_inverse(z_prime_data.redshift,self.sim_params.Delta_L)
+                z_prime_data.redshift = next_redshift
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    # Update the smoothed 1D velocity RMS in z'
+                    z_prime_data.evaluate_RMS()
+                    # Draw velocity at z_prime based on the velocity vector at z_prime_old
+                    z_prime_data.draw_conditional_velocity_vector(z_prime_old_data)
+                    # Compute parallel component of relative velocity with respect to the last point
+                    # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
+                    v_rel_parallel = z_prime_data.velocity_vector[0] - z_prime_old_data.velocity_vector[0] # dimensionless
+                # Calculate apparent frequency at z_prime. 
+                # First, we blueshift the apparent frequency from previous redshift
+                z_prime_data.apparent_frequency = z_prime_old_data.apparent_frequency*(1.+z_prime_data.redshift)/(1.+z_prime_old_data.redshift) # dimensionless
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    # Then, we Doppler shift it
+                    # Sign was chosen such that nu_app is larger when v_rel_parallel > 0.
+                    #   If v_rel_parallel > 0, the emitter (at z_prime) moves away 
+                    #   from the absorber (at z_prime_old), which has a known a 
+                    #   frequency. Thus, the emitter must have a larger frequency 
+                    #   in order to compensate for the Doppler shift, which tends to lower
+                    #   the frequency in the absorber's frame
+                    z_prime_data.apparent_frequency /= (1.-v_rel_parallel) # dimensionless
+                # Compute tau integrand at z' 
+                dtau_2_dL_curr = z_prime_data.compute_dtau_2_dL() # 1/m
+                # Compute integral of optical depth numerically 
+                # (this is simple integration by the trapezoidal rule)
+                dtau_2_dL = (dtau_2_dL_prev + dtau_2_dL_curr)/2. # 1/m
+                dtau = dtau_2_dL * self.sim_params.Delta_L * Mpc_to_meter # dimensionless
+                tau_integral += dtau  # dimensionless
+            # Draw a random direction in which the photon has propagated
+            if self.sim_params.STRAIGHT_LINE:
+                mu_rnd = 1.
+                phi_rnd = 0.
+            else:
+                if self.sim_params.ANISOTROPIC_SCATTERING:
+                    # Draw random mu from the phase function,
+                    # given by Eq. (20) in arXiv: 2311.03447
+                    if abs(z_i_data.apparent_frequency-1.) < 0.2*self.cosmo_params.Delta_nu_D:
+                        mu_rnd = self.interpolator.mu_table_core(np.array([np.random.rand()]))[0]
+                    else:
+                        mu_rnd = self.interpolator.mu_table_wing(np.array([np.random.rand()]))[0]
+                else:
+                    # Draw random mu from a uniform distribution
+                    mu_rnd = -1.+2.*np.random.rand()
+                # phi is always drawn from a uniform distribution
+                phi_rnd = 2.*np.pi*np.random.rand()
+            # Compute comoving distance between z_i and z_{i+1} (assumed to be z_prime),
+            # according to the straight line formula
+            L_i = self.cosmo_params.R_SL(z_i_data.redshift,z_prime_data.redshift) # Mpc
+            # Update scattering event (it is assumed that z_{i+1} = z_prime)
+            z_i_data = z_prime_data.copy()
+            # Update position vector of the photon
+            z_i_data.update_position_vector(L_i,mu_rnd,phi_rnd)
+            # Append z_{i+1} to the lists of scattering events
+            self.append(z_i_data.copy())
+            # If we exited the tau loop because we exceeded tau_rnd,
+            # then we have more upcoming scattering events!
+            if tau_integral >= tau_rnd:
+                # For the next scattering event, we need to rotate the velocity vector
+                if self.sim_params.INCLUDE_VELOCITIES:
+                    z_i_data.rotate(mu_rnd,phi_rnd)
+                # Change frequency of scattered photon due to recoil
+                if self.sim_params.INCLUDE_RECOIL and self.sim_params.INCLUDE_TEMPERATURE:
+                    # Draw a random thermal velocity vector. The perpendicular component is drawn from a normal distribution
+                    # while the parallel component is drawn from Eq. (25) in arXiv: 2311.03447.
+                    # Note that in our dimensionless units, Delta_nu_D also equals the rms of thermal velocity
+                    # Also note that we only need two components for the thermal velocity, not three
+                    v_thermal_perp = np.random.normal(scale=self.cosmo_params.Delta_nu_D/np.sqrt(2.)) # dimensionless
+                    if self.cosmo_params.T > 0.:
+                        v_thermal_parallel = (
+                            self.cosmo_params.Delta_nu_D * 
+                            draw_from_voigt_distribution(
+                                (z_i_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_D,
+                                self.cosmo_params.a_T
+                            )
+                        ) # dimensionless
+                    else:
+                        v_thermal_parallel = 0.
+                    # Update frequency according to Eq. (23) in arXiv: 2311.03447
+                    z_i_data.apparent_frequency /= 1. + (1.-mu_rnd)*h_P*z_i_data.apparent_frequency*nu_Lya/(m_H*c**2) # dimensionless
+                    z_i_data.apparent_frequency *= 1. + (mu_rnd - 1.)*v_thermal_parallel + np.sqrt(1.-mu_rnd**2)*v_thermal_perp # dimensionless
+                    # Also update tau integrand
+                    dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
+            # Otherwise, we reached beyond final frequency and we can stop the simulation for this photon
+            else:
+                break
+
     def plot_photon_trajectory(
         self,
         scale=5.,
@@ -530,7 +683,6 @@ class ALL_PHOTONS_DATA():
     ----------
     cosmo_params: :class:`~COSMO_PARAMS`
         The cosmological parameters and functions for the simulation.
-        Needs to be passed after CLASS was run.
     sim_params: :class:`~SIM_PARAMS`
         The simulation parameters.
     
@@ -546,18 +698,6 @@ class ALL_PHOTONS_DATA():
         self.cosmo_params = cosmo_params
         self.sim_params = sim_params
         self.photons_data = []
-        # Determine when to stop the simulation
-        if not self.sim_params.x_stop is None: 
-            r_stop = self.sim_params.x_stop*self.cosmo_params.r_star(self.z_abs) # Mpc
-            z_stop = self.cosmo_params.R_SL_inverse(self.z_abs,r_stop) # final redshift
-            self.nu_stop = (1.+z_stop)/(1.+self.z_abs) # frequency to stop the simulation (in units of Lya frequency)
-            if self.nu_stop > Lyman_beta:
-                self.nu_stop = Lyman_beta
-        else:
-            self.nu_stop = Lyman_beta
-            z_stop = (1.+self.z_abs)*self.nu_stop - 1. # final redshift
-            r_stop = self.cosmo_params.R_SL(self.z_abs,z_stop) # Mpc
-            self.sim_params.x_stop = r_stop/self.cosmo_params.r_star(self.z_abs) # dimensionless
         # Run CLASS
         self.CLASS_OUTPUT = cosmo_params.run_CLASS()
         cosmo_params.update_cosmo_params_with_CLASS(self.CLASS_OUTPUT)
@@ -566,7 +706,6 @@ class ALL_PHOTONS_DATA():
             cosmo_params = cosmo_params,
             sim_params = sim_params,
             z_abs = self.z_abs,
-            nu_stop = self.nu_stop,
             CLASS_OUTPUT = self.CLASS_OUTPUT
         )
         # Initialize interpolation tables for the velocity rms and Pearson coefficients
@@ -671,188 +810,37 @@ class ALL_PHOTONS_DATA():
         """
         
         return self.photons_data[photon_number].plot_distance(ax=ax,intermediate_pts=intermediate_pts,**kwargs)
-               
-    def simulate_one_photon(self,random_seed):
-        """
-        Simulate one photon, given a random seed.
         
-        Parameters
-        ----------
-        random_seed: int
-            The random seed of this photon.
-        
-        This is the heart of the code. Given the random seed, a random velocity
-        vector is drawn at z_abs, where the apparent frequency of the photon
-        is initialized to Lyman alpha. The photon then propoagates backwards 
-        in time and a random optical depth is drawn from exp(-tau) distribution. 
-        During its trajectory, the frequency of the photon is blueshifted to 
-        higher frequencies. Once the photon has traversed a distance that 
-        corresponds to an optical depth that is greater than the threshold, 
-        the photon scatters and gains a new random direction. The data of each 
-        scattering point (which can be viewed as a potential source of emission) 
-        is added to the object. This process continues until the apparent 
-        photon's frequency crosses Lyman beta.
-        
-        """
-        
-        # Set random seed for this photon
-        np.random.seed(random_seed)
-        # Initialize a photon in z_abs with Lyman alpha frequency (1 
-        # in our units, since we normalize frequency by nu_Lya)
-        z_abs_data = COSMO_POINT_DATA(redshift=self.z_abs,
-                                      cosmo_params=self.cosmo_params,
-                                      sim_params=self.sim_params,
-                                      apparent_frequency=1.)
-        if self.sim_params.INCLUDE_VELOCITIES:
-            z_abs_data.interpolator = self.interpolator
-            if self.sim_params.USE_INTERPOLATION_TABLES:
-                z_abs_data.CLASS_OUTPUT = self.CLASS_OUTPUT
-            # Compute the smoothed 1D velocity RMS in z_abs
-            z_abs_data.evaluate_RMS()
-            # Draw a random velocity at z_abs.
-            # Velocities are dimensionless in this code as they are normalized
-            # by c.
-            z_abs_data.velocity_vector = np.random.normal(scale=z_abs_data.velocity_1D_rms,size=3) # dimensionless
-        # Create a photon data object and initialize it with the point at z_abs
-        photon_data = PHOTON_POINTS_DATA(z_abs_data=z_abs_data.copy(),
-                                         cosmo_params=self.cosmo_params,
-                                         sim_params=self.sim_params,
-                                         random_seed=random_seed)
-        # Draw the first position of the photon outside the origin.
-        # This is the diffusion regime, where analytical result can be used.
-        if not self.sim_params.STRAIGHT_LINE:
-            z_ini_data = photon_data.draw_first_point()
-            photon_data.append(z_ini_data.copy())
-            # Initialize z_i to be at z_ini
-            # Each z_i corresponds to a new scattering point
-            z_i_data = z_ini_data.copy()
-        else:
-            z_i_data = z_abs_data.copy()
-        # Compute tau integrand at z_ini
-        dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
-        # Scatter the photon until we reached final frequency
-        while z_i_data.apparent_frequency < self.nu_stop:
-            # Draw random optical depth from an exponential distribution
-            tau_rnd = -np.log(np.random.rand())
-            # Initialize numerical integral for tau
-            tau_integral = 0.
-            dtau_2_dL_prev = dtau_2_dL_curr # 1/m
-            # Initialize z' to be at z_i
-            # z' is a dummy variable, used for the numerical integration of tau 
-            z_prime_data = z_i_data.copy()
-            # Calculate the optical depth numerically, until we crossed the
-            # randomly drawn threshold value
-            while tau_integral < tau_rnd and z_prime_data.apparent_frequency < self.nu_stop:
-                # Update tau integrand
-                dtau_2_dL_prev = dtau_2_dL_curr # 1/m
-                # Set z_prime_old to be z_prime
-                # We will use the velocity in z_prime_old to draw a correlated
-                # velocity at the new z_prime
-                z_prime_old_data = z_prime_data.copy()
-                # Update z_prime
-                # NOTE: We don't need to track the photon's position at every z',
-                # and instead we keep it to be in z_prime_old (which was set to
-                # be at z_i)
-                next_redshift = self.cosmo_params.R_SL_inverse(z_prime_data.redshift,self.sim_params.Delta_L)
-                z_prime_data.redshift = next_redshift
-                if self.sim_params.INCLUDE_VELOCITIES:
-                    # Update the smoothed 1D velocity RMS in z'
-                    z_prime_data.evaluate_RMS()
-                    # Draw velocity at z_prime based on the velocity vector at z_prime_old
-                    z_prime_data.draw_conditional_velocity_vector(z_prime_old_data)
-                    # Compute parallel component of relative velocity with respect to the last point
-                    # Remember: the first component in our velocity vector is always aligned with the photon's trajectory
-                    v_rel_parallel = z_prime_data.velocity_vector[0] - z_prime_old_data.velocity_vector[0] # dimensionless
-                # Calculate apparent frequency at z_prime. 
-                # First, we blueshift the apparent frequency from previous redshift
-                z_prime_data.apparent_frequency = z_prime_old_data.apparent_frequency*(1.+z_prime_data.redshift)/(1.+z_prime_old_data.redshift) # dimensionless
-                if self.sim_params.INCLUDE_VELOCITIES:
-                    # Then, we Doppler shift it
-                    # Sign was chosen such that nu_app is larger when v_rel_parallel > 0.
-                    #   If v_rel_parallel > 0, the emitter (at z_prime) moves away 
-                    #   from the absorber (at z_prime_old), which has a known a 
-                    #   frequency. Thus, the emitter must have a larger frequency 
-                    #   in order to compensate for the Doppler shift, which tends to lower
-                    #   the frequency in the absorber's frame
-                    z_prime_data.apparent_frequency /= (1.-v_rel_parallel) # dimensionless
-                # Compute tau integrand at z' 
-                dtau_2_dL_curr = z_prime_data.compute_dtau_2_dL() # 1/m
-                # Compute integral of optical depth numerically 
-                # (this is simple integration by the trapezoidal rule)
-                dtau_2_dL = (dtau_2_dL_prev + dtau_2_dL_curr)/2. # 1/m
-                dtau = dtau_2_dL * self.sim_params.Delta_L * Mpc_to_meter # dimensionless
-                tau_integral += dtau  # dimensionless
-            # Draw a random direction in which the photon has propagated
-            if self.sim_params.STRAIGHT_LINE:
-                mu_rnd = 1.
-                phi_rnd = 0.
-            else:
-                if self.sim_params.ANISOTROPIC_SCATTERING:
-                    # Draw random mu from the phase function,
-                    # given by Eq. (20) in arXiv: 2311.03447
-                    if abs(z_i_data.apparent_frequency-1.) < 0.2*self.cosmo_params.Delta_nu_D:
-                        mu_rnd = self.interpolator.mu_table_core(np.array([np.random.rand()]))[0]
-                    else:
-                        mu_rnd = self.interpolator.mu_table_wing(np.array([np.random.rand()]))[0]
-                else:
-                    # Draw random mu from a uniform distribution
-                    mu_rnd = -1.+2.*np.random.rand()
-                # phi is always drawn from a uniform distribution
-                phi_rnd = 2.*np.pi*np.random.rand()
-            # Compute comoving distance between z_i and z_{i+1} (assumed to be z_prime),
-            # according to the straight line formula
-            L_i = self.cosmo_params.R_SL(z_i_data.redshift,z_prime_data.redshift) # Mpc
-            # Update scattering event (it is assumed that z_{i+1} = z_prime)
-            z_i_data = z_prime_data.copy()
-            # Update position vector of the photon
-            z_i_data.update_position_vector(L_i,mu_rnd,phi_rnd)
-            # Append z_{i+1} to the lists of scattering events
-            photon_data.append(z_i_data.copy())
-            # If we exited the tau loop because we exceeded tau_rnd,
-            # then we have more upcoming scattering events!
-            if tau_integral >= tau_rnd:
-                # For the next scattering event, we need to rotate the velocity vector
-                if self.sim_params.INCLUDE_VELOCITIES:
-                    z_i_data.rotate(mu_rnd,phi_rnd)
-                # Change frequency of scattered photon due to recoil
-                if self.sim_params.INCLUDE_RECOIL and self.sim_params.INCLUDE_TEMPERATURE:
-                    # Draw a random thermal velocity vector. The perpendicular component is drawn from a normal distribution
-                    # while the parallel component is drawn from Eq. (25) in arXiv: 2311.03447.
-                    # Note that in our dimensionless units, Delta_nu_D also equals the rms of thermal velocity
-                    # Also note that we only need two components for the thermal velocity, not three
-                    v_thermal_perp = np.random.normal(scale=self.cosmo_params.Delta_nu_D/np.sqrt(2.)) # dimensionless
-                    if self.cosmo_params.T > 0.:
-                        v_thermal_parallel = (
-                            self.cosmo_params.Delta_nu_D * 
-                            draw_from_voigt_distribution(
-                                (z_i_data.apparent_frequency-1.)/self.cosmo_params.Delta_nu_D,
-                                self.cosmo_params.a_T
-                            )
-                        ) # dimensionless
-                    else:
-                        v_thermal_parallel = 0.
-                    # Update frequency according to Eq. (23) in arXiv: 2311.03447
-                    z_i_data.apparent_frequency /= 1. + (1.-mu_rnd)*h_P*z_i_data.apparent_frequency*nu_Lya/(m_H*c**2) # dimensionless
-                    z_i_data.apparent_frequency *= 1. + (mu_rnd - 1.)*v_thermal_parallel + np.sqrt(1.-mu_rnd**2)*v_thermal_perp # dimensionless
-                    # Also update tau integrand
-                    dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
-            # Otherwise, we reached beyond final frequency and we can stop the simulation for this photon
-            else:
-                break
-        # Append the data of this photon to the object
-        self.append(photon_data)
-        
-    def simulate_N_photons(self):
+    def simulate_N_photons(self,random_seed=None):
         """
         Simulate many photons.
         
         Many different photons are simulated, each of which with a different
-        random seed. The total number of simulated photons is determined by
-        self.sim_params.N.
+        random seed (incremented by one at the end of each simulation). 
+        The total number of simulated photons is determined by self.sim_params.N.
+
+        Parameters
+        ----------
+        random_seed: int, optioanl
+            The random seed for the first photon in the simulation. Default is z_abs.
         """
+
+        # Initialize a photon in z_abs with Lyman alpha frequency (1 
+        # in our units, since we normalize frequency by nu_Lya)
+        z_abs_data = COSMO_POINT_DATA(
+            redshift=self.z_abs,
+            cosmo_params=self.cosmo_params,
+            sim_params=self.sim_params,
+            apparent_frequency=1.,
+            interpolator = self.interpolator,
+            CLASS_OUTPUT = self.CLASS_OUTPUT
+        )
+        # Compute the smoothed 1D velocity RMS in z_abs
+        if self.sim_params.INCLUDE_VELOCITIES:
+            z_abs_data.evaluate_RMS()
         
-        # Initalize random seed for the first photon
-        random_seed = int(self.sim_params.z_abs)
+        if random_seed is None:
+            random_seed = int(self.sim_params.z_abs)
         
         # Simulate N photons
         for n  in tqdm.tqdm(range(self.sim_params.N),
@@ -860,6 +848,17 @@ class ALL_PHOTONS_DATA():
                             unit="photons",
                             disable=False,
                             total= self.sim_params.N):
-            self.simulate_one_photon(random_seed)
+            # Create a photon data object and initialize it with the point at z_abs
+            photon_data = PHOTON_POINTS_DATA(
+                z_abs_data=z_abs_data.copy(),
+                cosmo_params=self.cosmo_params,
+                sim_params=self.sim_params,
+                random_seed=random_seed,
+                interpolator = self.interpolator,
+                CLASS_OUTPUT = self.CLASS_OUTPUT
+            )
+            photon_data.simulate_one_photon(random_seed)
+            # Append the data of this photon to the object
+            self.append(photon_data)
             # Use a different random seed for the next photon
             random_seed += 1

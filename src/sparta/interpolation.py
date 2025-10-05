@@ -23,7 +23,6 @@ class INTERPOLATOR():
                  cosmo_params,
                  sim_params,
                  z_abs,
-                 nu_stop,
                  CLASS_OUTPUT,
                  interpolate_RMS = None,
                  interpolate_rho_parallel = None,
@@ -35,7 +34,6 @@ class INTERPOLATOR():
         self.cosmo_params = cosmo_params
         self.sim_params = sim_params
         self.z_abs = z_abs
-        self.nu_stop = nu_stop
         self.CLASS_OUTPUT = CLASS_OUTPUT if sim_params.USE_INTERPOLATION_TABLES else None
         self.interpolate_RMS = interpolate_RMS
         self.interpolate_rho_parallel = interpolate_rho_parallel
@@ -49,7 +47,7 @@ class INTERPOLATOR():
         """
         
         # Create interpolation table for the velocity RMS
-        z_end = (1.+self.z_abs)*self.nu_stop-1.
+        z_end = (1.+self.z_abs)*self.sim_params.nu_stop-1.
         z_array = np.linspace(self.z_abs,1.02*z_end,150) # We take a slightly higher z_end because of Doppler shifts that brings us to higher redshifts
         rms_array = np.zeros_like(z_array)
         for zi_ind, zi in enumerate(z_array):

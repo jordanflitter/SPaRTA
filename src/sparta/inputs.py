@@ -12,6 +12,7 @@ A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to 
 Tcmb0 = 2.728 # CMB temperature in Kelvin
 m_H = 1.6735575e-27 # Hydrogen atom mass in kg
 A_alpha_dimensionless = A_alpha/nu_Lya
+Lyman_beta = 32./27. # Lyb frequency in units of Lya frequency
 
 #%% Class for setting simulation parameters
 
@@ -70,6 +71,30 @@ class SIM_PARAMS():
             setattr(self, k, v)
         if not "x_stop" in  sim_params.keys():
             self.x_stop = None
+        
+    def update_sim_params_with_cosmo_params(self,cosmo_params):
+        """
+        Update some of the simulation parameters with the cosmological parameters.
+        
+        Parameters
+        ----------
+        cosmo_params: :class:`~COSMO_PARAMS`
+            The cosmological parameters and functions for the simulation.
+        
+        """
+        
+        if not self.x_stop is None: 
+            r_stop = self.x_stop*cosmo_params.r_star(self.z_abs) # Mpc
+            z_stop = self.cosmo_params.R_SL_inverse(self.z_abs,r_stop) # final redshift
+            self.nu_stop = (1.+z_stop)/(1.+self.z_abs) # frequency to stop the simulation (in units of Lya frequency)
+            if self.nu_stop > Lyman_beta:
+                self.nu_stop = Lyman_beta
+        else:
+            self.nu_stop = Lyman_beta
+            z_stop = (1.+self.z_abs)*self.nu_stop - 1. # final redshift
+            r_stop = cosmo_params.R_SL(self.z_abs,z_stop) # Mpc
+            self.x_stop = r_stop/cosmo_params.r_star(self.z_abs) # dimensionless
+        
 
 #%% Class for setting cosmological parameters 
 #   (and other variables/function with respect to the cosmological parameters)
