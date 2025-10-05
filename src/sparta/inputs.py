@@ -191,30 +191,7 @@ class COSMO_PARAMS():
         # Voigt profile parameters
         self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
         self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
-        
-        
-    def Delta_nu_star(self,z_abs):
-        """
-        Compute the frequency shift (in units of Lyman alpha frequncy) between 
-        the absorption point and the point in which a photon that is escaping
-        to infinity sees an optical depth of 1.
-        
-        Parameters
-        ----------
-        z_abs: float
-            Redshift of absorption.
-        
-        Returns
-        -------
-        float:
-            The frequency shift Delta_nu_star as given by Eq. (8) 
-            in arXiv: astro-ph/9902180 (assuming matter domination). 
-        """
-        
-        nu_star = 3.*c**3*A_alpha**2*self.n_H_z0*self.x_HI*pow(1.+z_abs,3./2.) # Hz^5
-        nu_star /= 32.*np.pi**3 *nu_Lya**4 * (1000.*self.H0/Mpc_to_meter)*np.sqrt(self.Omega_m) # dimensionless
-        return nu_star
-    
+            
     def R_SL(self,z1,z2):
         """
         Compute comoving straight line distance between z1 and z2.
@@ -257,6 +234,28 @@ class COSMO_PARAMS():
         z2 = pow(1./np.sqrt(1+z1)-1000.*self.H0*np.sqrt(self.Omega_m)*r/(2.*c),-2)-1. # Mpc
         return z2
     
+    def Delta_nu_star(self,z_abs):
+        """
+        Compute the frequency shift (in units of Lyman alpha frequncy) between 
+        the absorption point and the point in which a photon that is escaping
+        to infinity sees an optical depth of 1.
+        
+        Parameters
+        ----------
+        z_abs: float
+            Redshift of absorption.
+        
+        Returns
+        -------
+        float:
+            The frequency shift Delta_nu_star as given by Eq. (8) 
+            in arXiv: astro-ph/9902180 (assuming matter domination). 
+        """
+        
+        nu_star = 3.*c**3*A_alpha**2*self.n_H_z0*self.x_HI*pow(1.+z_abs,3./2.) # Hz^5
+        nu_star /= 32.*np.pi**3 *nu_Lya**4 * (1000.*self.H0/Mpc_to_meter)*np.sqrt(self.Omega_m) # dimensionless
+        return nu_star
+
     def r_star(self,z_abs):
         """
         Compute the comoving diffustion scale at z_abs.

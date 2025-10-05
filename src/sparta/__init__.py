@@ -37,6 +37,9 @@ from .post_processing import (
     SIM_DATA,
     HISTOGRAM_DATA
 )
+from .simulation import(
+    simulate_N_photons
+)
 from .correlations import(
     compute_correlation_function,
     compute_Pearson_coefficient,
