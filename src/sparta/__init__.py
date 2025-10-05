@@ -38,7 +38,7 @@ from .post_processing import (
     HISTOGRAM_DATA
 )
 from .simulation import(
-    simulate_N_photons
+    run_SPaRTA
 )
 from .correlations import(
     compute_correlation_function,

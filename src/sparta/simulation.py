@@ -4,7 +4,7 @@ import numpy as np
 import tqdm
 from numpy.linalg import norm
 from .Lyman_alpha import draw_from_voigt_distribution
-from . outputs import COSMO_POINT_DATA, PHOTON_POINTS_DATA
+from . outputs import COSMO_POINT_DATA, PHOTON_POINTS_DATA, ALL_PHOTONS_DATA
 
 #%% Define some global parameters
 Mpc_to_meter = 3.085677581282e22
@@ -45,10 +45,14 @@ def draw_first_point(photon_data):
         #       (since the thermal velocities are not correlated)
         v_thermal_rel_parallel = np.random.normal(scale=photon_data.cosmo_params.Delta_nu_D)
         z_ini_data.apparent_frequency /= (1.-v_thermal_rel_parallel)
-    # Draw the position vector from uncorrelated Gaussian distributions
-    tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/photon_data.cosmo_params.Delta_nu_star(photon_data.z_abs) # dimensionless
-    scale = np.sqrt(2./9.*tilde_nu**3)*photon_data.cosmo_params.r_star(photon_data.z_abs) # Mpc
-    z_ini_data.position_vector = np.random.normal(scale=scale,size=3) # Mpc
+    if photon_data.sim_params.STRAIGHT_LINE:
+        # To get the same result for the straight-line scenario, assume that the photon's position is along the first axis
+        z_ini_data.position_vector = np.array([norm(photon_data.cosmo_params.R_SL(photon_data.z_abs,z_ini)),0,0]) # Mpc
+    else:
+        # Draw the position vector from uncorrelated Gaussian distributions
+        tilde_nu = np.abs(z_ini_data.apparent_frequency-1.)/photon_data.cosmo_params.Delta_nu_star(photon_data.z_abs) # dimensionless
+        scale = np.sqrt(2./9.*tilde_nu**3)*photon_data.cosmo_params.r_star(photon_data.z_abs) # Mpc
+        z_ini_data.position_vector = np.random.normal(scale=scale,size=3) # Mpc
     # Correct initial frequency due to peculiar velocity
     # NOTE: it would be more consistent to draw the poisition vector after the frequency was corrected due to peculiar velocities.
     # However, the distamce from the origin is expected to be small, so peculiar relative velocities are very small and barely matter.
@@ -100,14 +104,11 @@ def simulate_one_photon(photon_data,random_seed):
         photon_data.z_abs_data.velocity_vector = np.random.normal(scale=photon_data.z_abs_data.velocity_1D_rms,size=3) # dimensionless
     # Draw the first position of the photon outside the origin.
     # This is the diffusion regime, where analytical result can be used.
-    if not photon_data.sim_params.STRAIGHT_LINE:
-        z_ini_data = draw_first_point(photon_data)
-        photon_data.append(z_ini_data.copy())
-        # Initialize z_i to be at z_ini
-        # Each z_i corresponds to a new scattering point
-        z_i_data = z_ini_data.copy()
-    else:
-        z_i_data = photon_data.z_abs_data.copy()
+    z_ini_data = draw_first_point(photon_data)
+    photon_data.append(z_ini_data.copy())
+    # Initialize z_i to be at z_ini
+    # Each z_i corresponds to a new scattering point
+    z_i_data = z_ini_data.copy()
     # Compute tau integrand at z_ini
     dtau_2_dL_curr = z_i_data.compute_dtau_2_dL() # 1/m
     # Scatter the photon until we reached final frequency
@@ -221,7 +222,7 @@ def simulate_one_photon(photon_data,random_seed):
             break
     return
 
-def simulate_N_photons(all_photons_data,random_seed=None):
+def simulate_N_photons(all_photons_data,random_seed):
     """
     Simulate many photons.
     
@@ -233,12 +234,9 @@ def simulate_N_photons(all_photons_data,random_seed=None):
     ----------
     all_photons_data: :class:`~ALL_PHOTONS_DATA`
         Object that will contain all the data from all the photons in the simulation.
-    random_seed: int, optional
-        The random seed for the first photon in the simulation. Default is z_abs.
+    random_seed: int
+        The random seed for the first photon in the simulation.
     """
-    
-    if random_seed is None:
-            random_seed = int(all_photons_data.sim_params.z_abs)
 
     # Initialize a photon in z_abs with Lyman alpha frequency (1 
     # in our units, since we normalize frequency by nu_Lya)
@@ -269,8 +267,41 @@ def simulate_N_photons(all_photons_data,random_seed=None):
             interpolator = all_photons_data.interpolator,
             CLASS_OUTPUT = all_photons_data.CLASS_OUTPUT
         )
+        # Simulate one photon!
         simulate_one_photon(photon_data,random_seed)
         # Append the data of this photon to the object
         all_photons_data.append(photon_data)
         # Use a different random seed for the next photon
         random_seed += 1
+
+def run_SPaRTA(cosmo_params,sim_params,random_seed=None):
+    """
+    Run SPaRTA for a given set of cosmological and simulation parameters.
+
+    Parameters
+    ----------
+    cosmo_params: :class:`~COSMO_PARAMS`
+        The cosmological parameters and functions for the simulation.
+    sim_params: :class:`~SIM_PARAMS`
+        The simulation parameters.
+    random_seed: int, optional
+        The random seed for the first photon in the simulation. Default is z_abs.
+    
+    Returns
+    -------
+    :class:`~ALL_PHOTONS_DATA`
+        Object that contains all the data from all the photons in the simulation.
+    """
+
+    # Determine random seed
+    if random_seed is None:
+        random_seed = int(sim_params.z_abs)
+    # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)
+    sim_params.update_sim_params_with_cosmo_params(cosmo_params)
+    # Initialize output
+    all_photons_data = ALL_PHOTONS_DATA(cosmo_params,sim_params)
+    # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)
+    simulate_N_photons(all_photons_data,random_seed)
+    # Return output
+    return all_photons_data
+    
