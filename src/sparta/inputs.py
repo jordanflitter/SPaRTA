@@ -135,9 +135,8 @@ class COSMO_PARAMS():
         self.rho_b0 = self.rho_crit*self.Omega_b # Baryon energy density in kg/m^3
         self.YHe = 0.2455 # Helium mass fraction (rho_He/rho_b)
         self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # # Hydrogen number density at z=0 in m^-3
-        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # # Mean baryon mass in kg. It is assumed that helium is doubly ionized when hydrogen is ionized
         # Voigt profile parameters
-        self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
+        self.Delta_nu_D = np.sqrt(2*k_B*self.T/m_H/c**2) # dimensionless (in units of nu_Lya)
         self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
         
     
@@ -186,10 +185,8 @@ class COSMO_PARAMS():
         self.YHe = CLASS_OUTPUT.get_current_derived_parameters(['YHe'])['YHe']
         # Hydrogen number density at z=0
         self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # m^-3
-        # Mean baryon mass. It is assumed that helium is doubly ionized when hydrogen is ionized
-        self.m_b = m_H * (1./((2.-self.x_HI)*(1.-self.YHe)+(1.+2.*(1.-self.x_HI))*self.YHe/4.)) # kg
         # Voigt profile parameters
-        self.Delta_nu_D = np.sqrt(2*k_B*self.T/self.m_b/c**2) # dimensionless (in units of nu_Lya)
+        self.Delta_nu_D = np.sqrt(2*k_B*self.T/m_H/c**2) # dimensionless (in units of nu_Lya)
         self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
             
     def R_SL(self,z1,z2):
