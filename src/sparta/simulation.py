@@ -5,6 +5,7 @@ import tqdm
 from numpy.linalg import norm
 from .Lyman_alpha import draw_from_voigt_distribution
 from .constants import *
+from . inputs import COSMO_PARAMS, SIM_PARAMS
 from .outputs import COSMO_POINT_DATA, PHOTON_POINTS_DATA, ALL_PHOTONS_DATA
 
 def draw_first_point(photon_data):
@@ -268,18 +269,20 @@ def simulate_N_photons(all_photons_data,random_seed):
         # Use a different random seed for the next photon
         random_seed += 1
 
-def run_SPaRTA(cosmo_params,sim_params,random_seed=None):
+def run_SPaRTA(cosmo_params=None,sim_params=None,random_seed=None,**kwargs):
     """
     Run SPaRTA for a given set of cosmological and simulation parameters.
 
     Parameters
     ----------
-    cosmo_params: :class:`~COSMO_PARAMS`
+    cosmo_params: :class:`~COSMO_PARAMS`,optional
         The cosmological parameters and functions for the simulation.
-    sim_params: :class:`~SIM_PARAMS`
+    sim_params: :class:`~SIM_PARAMS`,optional
         The simulation parameters.
     random_seed: int, optional
         The random seed for the first photon in the simulation. Default is z_abs.
+    kwargs:
+        Optional keywords to pass to :class:`~COSMO_PARAMS` or :class:`~SIM_PARAMS`.
     
     Returns
     -------
@@ -287,6 +290,16 @@ def run_SPaRTA(cosmo_params,sim_params,random_seed=None):
         Object that contains all the data from all the photons in the simulation.
     """
 
+    # Determine inputs
+    if sim_params is None:
+        sim_params = SIM_PARAMS()
+    if cosmo_params is None:
+        cosmo_params = COSMO_PARAMS()
+    for k, v in kwargs.items():
+        if hasattr(cosmo_params,k):
+           setattr(cosmo_params,k,v)
+        elif hasattr(sim_params,k):
+           setattr(sim_params,k,v)
     # Determine random seed
     if random_seed is None:
         random_seed = int(sim_params.z_abs)

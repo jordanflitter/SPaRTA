@@ -12,55 +12,78 @@ class SIM_PARAMS():
     
     Parameters
     ----------
-    sim_params: dictionary
-        Contains the following simulation parameters:
-            - z_abs: float
-                The redshift where the photon was absorbed.
-            - N: int 
-                Number of photons to simulate.
-            - Delta_L: float
-                "Grid" resolution in Mpc.
-            - x_stop: float
-                Distance from absorption point to stop the simulation in units of the diffusion scale.
-            - INCLUDE_VELOCITIES: bool
-                If True, bulk peculiar velocities will be included in the simulation.
-                Otherwise, assumes zero velocity throughout the simulation.
-            - NO_CORRELATIONS: bool
-                If True, the correlations in the velocitiy field will be ignored and at each sample a
-                random velocity vector will be drawn independently from the previous velocity vector.
-            - USE_INTERPOLATION_TABLES: bool
-                If True, interpolation tables for velocity rms and correlation coefficients will be used,
-                Otherwise, the rms and correlation coefficients will be computed from their integral definitions
-                every time they are needed (MUCH more slowly that way).
-            - INCLUDE_TEMPERATUR:, bool
-                If True, non-zero Temperature will be accounted, based on its value in cosmo_params.
-                Otherwise, zero temperature is assumed.
-            - ANISOTROPIC_SCATTERING: bool
-                If True, mu is drawn from a non-uniformal distribution (see Eq. 20 in arXiv: 2311.03447).
-                Otherwise, it is drawn from a uniformal distribution.
-            - INCLUDE_RECOIL: bool
-                If True, atom recoil will be included during a scattering event (see Eq. 23 in arXiv: 2311.03447).
-                Otherwise, this effect is not included and the outgoing photon's frequency is the same as 
-                the incoming photon's frequency, in the atom rest frame.
-            - STRAIGHT_LINE: bool
-                If True, no scattering will happen and the photon will travel in a straight line.
-                Otherwise, scattering are allowed.
-            - CROSS_SECTION: string
-                Type of cross-section to be used. Options are (default is 'Lorenzian'):
-                    - 'LORENTZIAN': A simple Lorentzian profile is used when T=0. 
-                    For a finite temperature, the Lorentzian profile is convolved 
-                    with a Gaussian to yield to Voigt profile.
-                    - 'PEEBLES': Cross-section from Peebles, P.J.E. (1993) Principles 
-                    of Physical Cosmology (see also Eq. 49 in arXiv: 1704.03416).
-                    Only works for T=0.
+    This class contains the following simulation parameters:
+        - z_abs: float
+            The redshift where the photon was absorbed.
+        - N: int 
+            Number of photons to simulate.
+        - Delta_L: float
+            "Grid" resolution in Mpc.
+        - x_stop: float
+            Distance from absorption point to stop the simulation in units of the diffusion scale.
+        - INCLUDE_VELOCITIES: bool
+            If True, bulk peculiar velocities will be included in the simulation.
+            Otherwise, assumes zero velocity throughout the simulation.
+        - NO_CORRELATIONS: bool
+            If True, the correlations in the velocitiy field will be ignored and at each sample a
+            random velocity vector will be drawn independently from the previous velocity vector.
+        - USE_INTERPOLATION_TABLES: bool
+            If True, interpolation tables for velocity rms and correlation coefficients will be used,
+            Otherwise, the rms and correlation coefficients will be computed from their integral definitions
+            every time they are needed (MUCH more slowly that way).
+        - INCLUDE_TEMPERATUR:, bool
+            If True, non-zero Temperature will be accounted, based on its value in cosmo_params.
+            Otherwise, zero temperature is assumed.
+        - ANISOTROPIC_SCATTERING: bool
+            If True, mu is drawn from a non-uniformal distribution (see Eq. 20 in arXiv: 2311.03447).
+            Otherwise, it is drawn from a uniformal distribution.
+        - INCLUDE_RECOIL: bool
+            If True, atom recoil will be included during a scattering event (see Eq. 23 in arXiv: 2311.03447).
+            Otherwise, this effect is not included and the outgoing photon's frequency is the same as 
+            the incoming photon's frequency, in the atom rest frame.
+        - STRAIGHT_LINE: bool
+            If True, no scattering will happen and the photon will travel in a straight line.
+            Otherwise, scattering are allowed.
+        - CROSS_SECTION: string
+            Type of cross-section to be used. Options are (default is 'Lorenzian'):
+                - 'LORENTZIAN': A simple Lorentzian profile is used when T=0. 
+                For a finite temperature, the Lorentzian profile is convolved 
+                with a Gaussian to yield to Voigt profile.
+                - 'PEEBLES': Cross-section from Peebles, P.J.E. (1993) Principles 
+                of Physical Cosmology (see also Eq. 49 in arXiv: 1704.03416).
+                Only works for T=0.
     
     """
     
-    def __init__(self,sim_params):
-        for k, v in sim_params.items():
-            setattr(self, k, v)
-        if not "x_stop" in  sim_params.keys():
-            self.x_stop = None
+    def __init__(
+            self,
+            z_abs = 10,
+            N = 1000,
+            Delta_L = 0.2,
+            Delta_nu_initial = 2.e-4,
+            x_stop = None,
+            INCLUDE_VELOCITIES = True,
+            NO_CORRELATIONS = False,
+            USE_INTERPOLATION_TABLES = True,
+            INCLUDE_TEMPERATURE = True,
+            ANISOTROPIC_SCATTERING = True,
+            INCLUDE_RECOIL = True,
+            STRAIGHT_LINE = False,
+            CROSS_SECTION = "LORENTZIAN"
+            ):
+        self.z_abs = z_abs
+        self.N = N
+        self.Delta_L = Delta_L
+        self.Delta_nu_initial = Delta_nu_initial
+        self.x_stop = x_stop
+        self.INCLUDE_VELOCITIES = INCLUDE_VELOCITIES
+        self.NO_CORRELATIONS = NO_CORRELATIONS
+        self.USE_INTERPOLATION_TABLES = USE_INTERPOLATION_TABLES
+        self.INCLUDE_TEMPERATURE = INCLUDE_TEMPERATURE
+        self.ANISOTROPIC_SCATTERING = ANISOTROPIC_SCATTERING
+        self.INCLUDE_RECOIL = INCLUDE_RECOIL
+        self.STRAIGHT_LINE = STRAIGHT_LINE
+        self.CROSS_SECTION = CROSS_SECTION
         
     def update_sim_params_with_cosmo_params(self,cosmo_params):
         """
@@ -95,29 +118,41 @@ class COSMO_PARAMS():
     
     Parameters
     ----------
-    cosmo_params: dictionary
-        Contains the following cosmological parameters:
-            - h: float
-                Hubble constant (in 100 km/sec/Mpc).
-            - Omega_m: float
-                Current matter density parameter.
-            - Omega_b: float
-                Current baryon density parameter.
-            - A_s: float
-                Amplitude of primordial curvator fluctuations 
-                in the pivot scale 0.05 Mpc^-1.
-            - n_s: float
-                Spectral tilt of primordial curvator fluctuations.
-            - T: float
-                Temperature of the IGM in the simulation, in Kelvin.
-            - x_HI: float
-                Fraction of neutral hydrogen in the simulation.
+    This class contains the following cosmological parameters:
+        - h: float
+            Hubble constant (in 100 km/sec/Mpc).
+        - Omega_m: float
+            Current matter density parameter.
+        - Omega_b: float
+            Current baryon density parameter.
+        - A_s: float
+            Amplitude of primordial curvator fluctuations 
+            in the pivot scale 0.05 Mpc^-1.
+        - n_s: float
+            Spectral tilt of primordial curvator fluctuations.
+        - T: float
+            Temperature of the IGM in the simulation, in Kelvin.
+        - x_HI: float
+            Fraction of neutral hydrogen in the simulation.
     """
     
-    def __init__(self,cosmo_params):
-        for k, v in cosmo_params.items():
-            setattr(self, k, v)
-            
+    def __init__(
+            self,
+            h = 0.6736,
+            Omega_m = 0.3153,
+            Omega_b = 0.0493,
+            A_s = 2.1e-9,
+            n_s = 0.9649,
+            T = 1.e4,
+            x_HI = 1.
+        ):
+        self.h = h
+        self.Omega_m = Omega_m
+        self.Omega_b = Omega_b
+        self.A_s = A_s
+        self.n_s = n_s
+        self.T = T
+        self.x_HI = x_HI          
         # Compute other cosmological parameters
         self.H0 = 100*self.h # Hubble constant in km/sec/Mpc
         self.Omega_c = self.Omega_m - self.Omega_b # CDM portion
@@ -129,7 +164,6 @@ class COSMO_PARAMS():
         self.Delta_nu_D = np.sqrt(2*k_B*self.T/m_H/c**2) # dimensionless (in units of nu_Lya)
         self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
         
-    
     def run_CLASS(self):
         """
         Run CLASS with the input cosmological parameters.
@@ -175,9 +209,6 @@ class COSMO_PARAMS():
         self.YHe = CLASS_OUTPUT.get_current_derived_parameters(['YHe'])['YHe']
         # Hydrogen number density at z=0
         self.n_H_z0 = (1.-self.YHe)*self.rho_b0/m_H # m^-3
-        # Voigt profile parameters
-        self.Delta_nu_D = np.sqrt(2*k_B*self.T/m_H/c**2) # dimensionless (in units of nu_Lya)
-        self.a_T = A_alpha_dimensionless/4/np.pi/self.Delta_nu_D # dimensionless
             
     def R_SL(self,z1,z2):
         """
