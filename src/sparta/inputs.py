@@ -138,11 +138,11 @@ class COSMO_PARAMS():
     
     def __init__(
             self,
-            h = 0.6736,
-            Omega_m = 0.3153,
-            Omega_b = 0.0493,
-            A_s = 2.1e-9,
-            n_s = 0.9649,
+            h = 0.6766,
+            Omega_m = (0.02242 + 0.11933) / 0.6766**2,
+            Omega_b = 0.02242 / 0.6766**2,
+            A_s = 1e-10*np.exp(3.047),
+            n_s = 0.9665,
             T = 1.e4,
             x_HI = 1.
         ):
@@ -180,7 +180,6 @@ class COSMO_PARAMS():
         CLASS_params['Omega_b'] = self.Omega_b
         CLASS_params['A_s'] = self.A_s
         CLASS_params['n_s'] = self.n_s
-        CLASS_params['T_cmb'] = Tcmb0
         CLASS_params['m_ncdm'] = "0.06" # eV
         CLASS_params['N_ncdm'] = 1
         CLASS_params['N_ur'] = 2.0308
