@@ -4,9 +4,27 @@ import numpy as np
 from classy import Class
 from .constants import *
 
+#%% Class for defining and manipulating input parameters
+
+class INPUT_STRUCT():
+    """
+    Useful class for defining and manipulating input parameters.
+    """
+
+    def update(self,**kwargs):
+        """
+        Update an input struct based keyword arguments.
+        """
+        
+        for k, v in kwargs.items():
+            if hasattr(self,k):
+                setattr(self,k,v)
+            else:
+                raise KeyError(f"{type(self)} has no attribute {k}.")
+
 #%% Class for setting simulation parameters
 
-class SIM_PARAMS():
+class SIM_PARAMS(INPUT_STRUCT):
     """
     Class for setting simulation parameters.
     
@@ -112,7 +130,7 @@ class SIM_PARAMS():
 #%% Class for setting cosmological parameters 
 #   (and other variables/function with respect to the cosmological parameters)
 
-class COSMO_PARAMS():
+class COSMO_PARAMS(INPUT_STRUCT):
     """
     Class for setting cosmological parameters.
     

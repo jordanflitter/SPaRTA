@@ -290,21 +290,11 @@ def run_SPaRTA(cosmo_params=None,sim_params=None,random_seed=None,**kwargs):
         Object that contains all the data from all the photons in the simulation.
     """
 
-    # Determine inputs
-    if sim_params is None:
-        sim_params = SIM_PARAMS()
-    if cosmo_params is None:
-        cosmo_params = COSMO_PARAMS()
-    for k, v in kwargs.items():
-        if hasattr(cosmo_params,k):
-           setattr(cosmo_params,k,v)
-        elif hasattr(sim_params,k):
-           setattr(sim_params,k,v)
+    # Set inputs
+    cosmo_params, sim_params = set_inputs(cosmo_params,sim_params,**kwargs)
     # Determine random seed
     if random_seed is None:
         random_seed = int(sim_params.z_abs)
-    # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)
-    sim_params.update_sim_params_with_cosmo_params(cosmo_params)
     # Initialize output
     all_photons_data = ALL_PHOTONS_DATA(cosmo_params,sim_params)
     # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)
@@ -312,3 +302,43 @@ def run_SPaRTA(cosmo_params=None,sim_params=None,random_seed=None,**kwargs):
     # Return output
     return all_photons_data
     
+def set_inputs(cosmo_params=None,sim_params=None,**kwargs):
+    """
+    Set input for the simulation.
+    
+    Parameters
+    ----------
+    cosmo_params: :class:`~COSMO_PARAMS`,optional
+        The cosmological parameters and functions for the simulation.
+    sim_params: :class:`~SIM_PARAMS`,optional
+        The simulation parameters.
+    kwargs:
+        Optional keywords to pass to :class:`~COSMO_PARAMS` or :class:`~SIM_PARAMS`.
+    
+    Returns
+    -------
+    cosmo_params: :class:`~COSMO_PARAMS`,optional
+        Updated version of the cosmological parameters and functions for the simulation.
+    sim_params: :class:`~SIM_PARAMS`,optional
+        Updated version of the simulation parameters.
+    """
+
+    if sim_params is None:
+        sim_params = SIM_PARAMS()
+    if cosmo_params is None:
+        cosmo_params = COSMO_PARAMS()
+    kwargs_cosmo = {}
+    kwargs_sim = {}
+    for k, v in kwargs.items():
+        if hasattr(cosmo_params,k):
+           kwargs_cosmo[k] = v
+        elif hasattr(sim_params,k):
+           kwargs_sim[k] = v
+        else:
+            raise KeyError("f{k} is not a valid keyword argument in SPaRTA.")
+    cosmo_params.update(**kwargs_cosmo)
+    sim_params.update(**kwargs_sim)
+    # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)
+    sim_params.update_sim_params_with_cosmo_params(cosmo_params)
+    # Return output
+    return cosmo_params, sim_params
