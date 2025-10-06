@@ -3,15 +3,7 @@
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.special import voigt_profile
-
-#%% Define some global parameters
-c = 2.99792458e8 # Speed of light in m/sec
-k_B = 1.3806504e-23 # Boltzmann Constant in J/K
-nu_Lya = 2.47e15 # Lya frequency in Hz
-lambda_alpha = c/nu_Lya # Lya wavelength in m
-A_alpha = 6.25e8 # Spontaneous decay rate of hydrogen atom from the 2p state to the 1s state in Hz
-m_H = 1.6735575e-27 # Hydrogen atom mass in kg
-A_alpha_dimensionless = A_alpha/nu_Lya
+from .constants import *
 
 def compute_Lya_cross_section(
     nu_apparent,

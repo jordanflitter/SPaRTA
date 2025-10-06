@@ -4,14 +4,8 @@ import numpy as np
 import tqdm
 from numpy.linalg import norm
 from .Lyman_alpha import draw_from_voigt_distribution
-from . outputs import COSMO_POINT_DATA, PHOTON_POINTS_DATA, ALL_PHOTONS_DATA
-
-#%% Define some global parameters
-Mpc_to_meter = 3.085677581282e22
-c = 2.99792458e8 # Speed of light in m/sec
-h_P = 6.62606896e-34 # Planck Constant in J*sec
-nu_Lya = 2.47e15 # Lya frequency in Hz
-m_H = 1.6735575e-27 # Hydrogen atom mass in kg
+from .constants import *
+from .outputs import COSMO_POINT_DATA, PHOTON_POINTS_DATA, ALL_PHOTONS_DATA
 
 def draw_first_point(photon_data):
     """
