@@ -27,8 +27,8 @@ def draw_first_point(photon_data):
     
     # Copy the content of z_abs_data into z_ini_data.
     z_ini_data = photon_data.z_abs_data.copy()
-    # Find the next redshift from the initial frequency shift
-    z_ini = (1.+photon_data.z_abs)*(1.+ photon_data.sim_params.Delta_nu_initial) - 1.
+    # Find the next redshift from the initial redshift difference
+    z_ini = (1.+photon_data.z_abs)*(1.+ photon_data.sim_params.Delta_z_initial) - 1.
     z_ini_data.redshift = z_ini
     # Define initial frequency at z_ini
     z_ini_data.apparent_frequency = (1.+z_ini)/(1.+photon_data.z_abs) # dimensionless (in units of Lya frequency)
@@ -248,11 +248,11 @@ def simulate_N_photons(all_photons_data,random_seed):
         z_abs_data.evaluate_RMS()
     
     # Simulate N photons
-    for n  in tqdm.tqdm(range(all_photons_data.sim_params.N),
+    for n  in tqdm.tqdm(range(all_photons_data.sim_params.N_photons),
                         desc="",
                         unit="photons",
                         disable=False,
-                        total= all_photons_data.sim_params.N):
+                        total= all_photons_data.sim_params.N_photons):
         # Create a photon data object and initialize it with the point at z_abs
         photon_data = PHOTON_POINTS_DATA(
             z_abs_data = z_abs_data.copy(),
@@ -305,7 +305,7 @@ def run_SPaRTA(cosmo_params=None,sim_params=None,random_seed=None,**kwargs):
 def set_inputs(cosmo_params=None,sim_params=None,**kwargs):
     """
     Set input for the simulation.
-    
+
     Parameters
     ----------
     cosmo_params: :class:`~COSMO_PARAMS`,optional
@@ -335,7 +335,7 @@ def set_inputs(cosmo_params=None,sim_params=None,**kwargs):
         elif hasattr(sim_params,k):
            kwargs_sim[k] = v
         else:
-            raise KeyError("f{k} is not a valid keyword argument in SPaRTA.")
+            raise KeyError(f"{k} is not a valid keyword argument in SPaRTA.")
     cosmo_params.update(**kwargs_cosmo)
     sim_params.update(**kwargs_sim)
     # Update simulation parameters, given the cosmological parameters (to know when to stop the simulation)

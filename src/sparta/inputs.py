@@ -51,11 +51,14 @@ class SIM_PARAMS(INPUT_STRUCT):
     ----------
     This class contains the following simulation parameters:
         - z_abs: float
-            The redshift where the photon was absorbed.
-        - N: int 
+            The redshift where the photon is absorbed.
+        - N_photons: int
             Number of photons to simulate.
         - Delta_L: float
             "Grid" resolution in Mpc.
+        Delta_z_initial, float
+            The initial redshift difference with respect to the absorption point, normalized by 1+z_abs.
+            It is (Delta z)/(1+z_abs), which equals to (Delta nu)/nu_alpha if there are no peculiar or thermal velocities.
         - x_stop: float
             Distance from absorption point to stop the simulation in units of the diffusion scale.
         - INCLUDE_VELOCITIES: bool
@@ -68,7 +71,7 @@ class SIM_PARAMS(INPUT_STRUCT):
             If True, interpolation tables for velocity rms and correlation coefficients will be used,
             Otherwise, the rms and correlation coefficients will be computed from their integral definitions
             every time they are needed (MUCH more slowly that way).
-        - INCLUDE_TEMPERATUR:, bool
+        - INCLUDE_TEMPERATURE:, bool
             If True, non-zero Temperature will be accounted, based on its value in cosmo_params.
             Otherwise, zero temperature is assumed.
         - ANISOTROPIC_SCATTERING: bool
@@ -94,9 +97,9 @@ class SIM_PARAMS(INPUT_STRUCT):
 
     _defaults_ = {
         "z_abs" : 10., 
-        "N" : 1000, 
+        "N_photons" : 1000, 
         "Delta_L" : 0.2, 
-        "Delta_nu_initial" : 2.e-4, 
+        "Delta_z_initial" : 2.e-4, 
         "x_stop" : None,
         "INCLUDE_VELOCITIES" : True, 
         "NO_CORRELATIONS" : False, 
@@ -176,6 +179,7 @@ class COSMO_PARAMS(INPUT_STRUCT):
         """
         Include derived parameters for this object.
         """
+
         self.H0 = 100*self.h # Hubble constant in km/sec/Mpc
         self.Omega_c = self.Omega_m - self.Omega_b # CDM portion
         self.rho_crit = 1.8788e-26 * self.h**2 # Critical energy density in kg/m^3

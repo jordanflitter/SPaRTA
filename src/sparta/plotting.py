@@ -430,7 +430,7 @@ def plot_apparent_frequency(
     ax.loglog((z_array-photon_points_data.z_abs)/(1.+photon_points_data.z_abs),nu_array-1.,**kwargs)
     ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
     ax.set_ylabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
-    ax.set_xlim(photon_points_data.sim_params.Delta_nu_initial,photon_points_data.sim_params.nu_stop-1.)
+    ax.set_xlim(photon_points_data.sim_params.Delta_z_initial,photon_points_data.sim_params.nu_stop-1.)
     ax.xaxis.set_tick_params(labelsize=20)
     ax.yaxis.set_tick_params(labelsize=20)
     if "label" in kwargs:
@@ -497,7 +497,7 @@ def plot_distance(
     ax.loglog((z_array-photon_points_data.z_abs)/(1.+photon_points_data.z_abs),r_array,**kwargs)
     ax.set_xlabel('$(z-z_\\mathrm{abs})/(1+z_\\mathrm{abs})$',fontsize=25)
     ax.set_ylabel('Distance [Mpc]',fontsize=25)
-    ax.set_xlim(photon_points_data.sim_params.Delta_nu_initial,photon_points_data.sim_params.nu_stop-1.)
+    ax.set_xlim(photon_points_data.sim_params.Delta_z_initial,photon_points_data.sim_params.nu_stop-1.)
     ax.xaxis.set_tick_params(labelsize=20)
     ax.yaxis.set_tick_params(labelsize=20)
     if "label" in kwargs:
