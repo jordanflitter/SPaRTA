@@ -10,6 +10,17 @@ class INPUT_STRUCT():
     """
     Useful class for defining and manipulating input parameters.
     """
+    
+    def __init__(self,**kwargs):
+        for k, v in self._defaults_.items():
+            if k in kwargs.keys():
+                setattr(self, k, kwargs.pop(k))
+            else:
+                setattr(self, k, v)
+        if len(kwargs):
+            wrong_key = next(iter(kwargs.keys()))
+            raise TypeError(f"{wrong_key} is not a valid keyword input for {type(self)}.")
+        self.include_derived_parameters()
 
     def update(self,**kwargs):
         """
@@ -21,6 +32,14 @@ class INPUT_STRUCT():
                 setattr(self,k,v)
             else:
                 raise KeyError(f"{type(self)} has no attribute {k}.")
+    
+    def print(self):
+        """
+        Print all the fundamental parameters of the object.
+        """
+        
+        for k in self._defaults_.keys():
+            print(f"  {k} = {getattr(self, k)}")
 
 #%% Class for setting simulation parameters
 
@@ -72,36 +91,25 @@ class SIM_PARAMS(INPUT_STRUCT):
                 Only works for T=0.
     
     """
-    
-    def __init__(
-            self,
-            z_abs = 10,
-            N = 1000,
-            Delta_L = 0.2,
-            Delta_nu_initial = 2.e-4,
-            x_stop = None,
-            INCLUDE_VELOCITIES = True,
-            NO_CORRELATIONS = False,
-            USE_INTERPOLATION_TABLES = True,
-            INCLUDE_TEMPERATURE = True,
-            ANISOTROPIC_SCATTERING = True,
-            INCLUDE_RECOIL = True,
-            STRAIGHT_LINE = False,
-            CROSS_SECTION = "LORENTZIAN"
-            ):
-        self.z_abs = z_abs
-        self.N = N
-        self.Delta_L = Delta_L
-        self.Delta_nu_initial = Delta_nu_initial
-        self.x_stop = x_stop
-        self.INCLUDE_VELOCITIES = INCLUDE_VELOCITIES
-        self.NO_CORRELATIONS = NO_CORRELATIONS
-        self.USE_INTERPOLATION_TABLES = USE_INTERPOLATION_TABLES
-        self.INCLUDE_TEMPERATURE = INCLUDE_TEMPERATURE
-        self.ANISOTROPIC_SCATTERING = ANISOTROPIC_SCATTERING
-        self.INCLUDE_RECOIL = INCLUDE_RECOIL
-        self.STRAIGHT_LINE = STRAIGHT_LINE
-        self.CROSS_SECTION = CROSS_SECTION
+
+    _defaults_ = {
+        "z_abs" : 10., 
+        "N" : 1000, 
+        "Delta_L" : 0.2, 
+        "Delta_nu_initial" : 2.e-4, 
+        "x_stop" : None,
+        "INCLUDE_VELOCITIES" : True, 
+        "NO_CORRELATIONS" : False, 
+        "USE_INTERPOLATION_TABLES" : True,
+        "INCLUDE_TEMPERATURE" : True, 
+        "ANISOTROPIC_SCATTERING" : True, 
+        "INCLUDE_RECOIL" : True,
+        "STRAIGHT_LINE" : False, 
+        "CROSS_SECTION": "LORENTZIAN"
+    }
+
+    def include_derived_parameters(self):
+        return
         
     def update_sim_params_with_cosmo_params(self,cosmo_params):
         """
@@ -154,24 +162,20 @@ class COSMO_PARAMS(INPUT_STRUCT):
             Fraction of neutral hydrogen in the simulation.
     """
     
-    def __init__(
-            self,
-            h = 0.6766,
-            Omega_m = (0.02242 + 0.11933) / 0.6766**2,
-            Omega_b = 0.02242 / 0.6766**2,
-            A_s = 1e-10*np.exp(3.047),
-            n_s = 0.9665,
-            T = 1.e4,
-            x_HI = 1.
-        ):
-        self.h = h
-        self.Omega_m = Omega_m
-        self.Omega_b = Omega_b
-        self.A_s = A_s
-        self.n_s = n_s
-        self.T = T
-        self.x_HI = x_HI          
-        # Compute other cosmological parameters
+    _defaults_ = {
+        "h" : 0.6766, 
+        "Omega_m" : (0.02242 + 0.11933) / 0.6766**2, 
+        "Omega_b" : 0.02242 / 0.6766**2, 
+        "A_s" : 1e-10*np.exp(3.047), 
+        "n_s" : 0.9665, 
+        "T" : 1.e4, 
+        "x_HI" : 1.
+    }
+
+    def include_derived_parameters(self):
+        """
+        Include derived parameters for this object.
+        """
         self.H0 = 100*self.h # Hubble constant in km/sec/Mpc
         self.Omega_c = self.Omega_m - self.Omega_b # CDM portion
         self.rho_crit = 1.8788e-26 * self.h**2 # Critical energy density in kg/m^3
