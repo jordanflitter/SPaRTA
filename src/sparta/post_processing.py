@@ -230,7 +230,10 @@ class SIM_DATA():
         max_x = np.round(self.sim_params.x_stop,1)
         x_edges = np.linspace(x_res/2.,max_x+x_res/2.,int(np.round(max_x/x_res))+1)
         # Collect only data that falls in the appropriate x_em bin
-        bin_number = np.digitize(x_em,x_edges)
+        if x_em < x_edges.min() or x_em > x_edges.max():
+            raise ValueError(f"Invalid value of x_em for x_res={x_res} and x_stop={self.sim_params.x_stop}.")
+        else:
+            bin_number = np.digitize(x_em,x_edges)
         data = np.array(self.y_list)[np.digitize(self.x_list,x_edges) == bin_number]
         data_lims = (data.min(), data.max())
         # Find mean and variance
