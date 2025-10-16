@@ -1,12 +1,53 @@
 "Module for post processing the outputs of SPaRTA."
 
 import numpy as np
+import mpmath
 from numpy.linalg import norm
 import scipy.integrate as intg
 from scipy.optimize import curve_fit
 from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
 from . import plotting
+
+def multiple_scattering_window_function(kR,alpha,beta):
+    """
+    Returns the multiple scattering window function
+
+    M(alpha,beta,kR) = 2F3( (2+alpha)/2, (3+alpha)/2 ; 5/2, (2+alpha+beta)/2 ,(3+alpha+beta)/2 ; -1/4 * kR^2)
+
+    Parameters
+    ----------
+    kR: float or array
+        The argument of the window function.
+    alpha: float
+        First parameter of the window function.
+    beta: float
+        Second parameter of the window function.
+    
+    Returns
+    -------
+    M: float or array
+        The multiple scattering window function.
+
+    """
+
+    if np.isscalar(kR) or (isinstance(kR, np.ndarray) and kR.ndim == 0):
+        return mpmath.hyper(
+            [(2.+alpha)/2.,(3.+alpha)/2.],
+            [5./2.,(2.+alpha+beta)/2.,(3.+alpha+beta)/2.],
+            -0.25*float(kR)**2
+        )
+    else:
+        return np.array(
+            [
+                mpmath.hyper(
+                    [(2.+alpha)/2.,(3.+alpha)/2.],
+                    [5./2.,(2.+alpha+beta)/2.,(3.+alpha+beta)/2.],
+                    -0.25*kR_i**2
+                )
+                for kR_i in kR
+            ]
+        )
 
 #%% Class for collecting data from the simulation
 
@@ -279,6 +320,45 @@ class SIM_DATA():
         """
         
         return plotting.plot_fit(
+            sim_data = self,
+            x_em = x_em,
+            x_res = x_res,
+            ax = ax,
+            **kwargs
+        )
+    
+    def plot_window_function(
+        self,
+        x_em,
+        x_res = 0.1,
+        ax=None,
+        **kwargs
+        ):
+        """
+        Plot the analytical fit to the 1D histogram at x_em.
+        
+        Parameters
+        ----------
+        x_em: float
+            Comoving straight-line distance between z_abs and z_em, normalized 
+            by the diffusion scale at z_abs.
+        x_res: float, optional
+            Resolution (width) of the x_em bins. Default is 0.1.
+        ax: Axes, optional
+            The matplotlib Axes object on which to plot. Otherwise, created.
+        kwargs:
+            Optional keywords to pass to :func:`maplotlib.plot`.
+        
+        Returns
+        -------
+        fig, ax:
+            figure and axis objects from matplotlib.
+        
+        """
+
+        return plotting.plot_window_function(
+            alpha = None,
+            beta = None,
             sim_data = self,
             x_em = x_em,
             x_res = x_res,

@@ -8,6 +8,7 @@ from scipy.stats import norm as norm_dist
 from scipy.stats import beta as beta_dist
 from . import correlations
 from . Lyman_alpha import compute_Lya_cross_section
+from . post_processing import multiple_scattering_window_function
 from . inputs import COSMO_PARAMS
 
 def plot_cross_section(
@@ -75,6 +76,50 @@ def plot_cross_section(
     ax.set_xlim([nu_min,nu_max])
     ax.set_xlabel('$\\nu/\\nu_\\alpha-1$',fontsize=25)
     ax.set_ylabel('$\\sigma_\\alpha\\,[\\mathrm{cm^2}]$',fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    if "label" in kwargs:
+        ax.legend(fontsize=20)
+    # Return output
+    return fig, ax
+
+def plot_beta_distribution(
+    alpha,
+    beta,
+    ax = None,
+    **kwargs
+    ):
+        
+    """
+    Plot the analytical fit to the 1D histogram at x_em.
+    
+    Parameters
+    ----------
+    alpha: float
+        First parameter of the window function.
+    beta: float
+        Second parameter of the window function.
+    ax: Axes, optional
+        The matplotlib Axes object on which to plot. Otherwise, created.
+    kwargs:
+        Optional keywords to pass to :func:`maplotlib.plot`.
+    
+    Returns
+    -------
+    fig, ax:
+        figure and axis objects from matplotlib.
+    
+    """
+    
+    # Prepare figure
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    else:
+        fig = ax.figure
+    # Plot the analytical fit
+    x_array = np.linspace(0.,1.,1000)
+    ax.plot(x_array, beta_dist.pdf(x_array,alpha,beta),**kwargs)
+    # Prettify plot
     ax.xaxis.set_tick_params(labelsize=20)
     ax.yaxis.set_tick_params(labelsize=20)
     if "label" in kwargs:
@@ -588,7 +633,7 @@ def plot_fit(
         Comoving straight-line distance between z_abs and z_em, normalized 
         by the diffusion scale at z_abs.
     x_res: float, optional
-        Resolution (width) of the x_em bins.
+        Resolution (width) of the x_em bins. Default is 0.1.
     ax: Axes, optional
         The matplotlib Axes object on which to plot. Otherwise, created.
     kwargs:
@@ -627,6 +672,73 @@ def plot_fit(
     ax.yaxis.set_tick_params(labelsize=20)
     if "label" in kwargs:
         ax.legend(fontsize=20)
+    # Return output
+    return fig, ax
+
+def plot_window_function(
+    alpha = None,
+    beta = None,
+    sim_data = None,
+    x_em = None,
+    x_res = None,
+    ax = None,
+    **kwargs
+    ):
+    """
+    Plot the multiple scattering window function as a function of kR. It is
+
+    M(alpha,beta,kR) = 2F3( (2+alpha)/2, (3+alpha)/2 ; 5/2, (2+alpha+beta)/2 ,(3+alpha+beta)/2 ; -1/4 * kR^2)
+
+    If alpha and beta are not provided, then sim_data and x_em must be provided, and alpha and beta will be inferred
+    from the simulation data.
+    
+    Parameters
+    ----------
+    alpha: float, optional
+        First parameter of the window function.
+    beta: float, optional
+        Second parameter of the window function.
+    sim_data: SIM_DATA, optional
+        The object that contains all the data from the simulation. Must be of type 'distance'.
+    x_em: float, optional
+        Comoving straight-line distance between z_abs and z_em, normalized 
+        by the diffusion scale at z_abs.
+    x_res: float, optional
+        Resolution (width) of the x_em bins. Default is 0.1.
+    ax: Axes, optional
+        The matplotlib Axes object on which to plot. Otherwise, created.
+    kwargs:
+        Optional keywords to pass to :func:`maplotlib.plot`.
+    
+    Returns
+    -------
+    fig, ax:
+        figure and axis objects from matplotlib.
+    
+    """
+
+    if (alpha is None) and (beta is None):
+        if not sim_data.quantity == "distance":
+            raise TypeError("sim_data is not of type 'distance'! The window function can be plotted only for data of type 'distance'.")
+        dist_params, data_lims = sim_data.find_fitting_params(x_em=x_em,x_res=x_res)
+        (alpha, beta) = dist_params
+    elif not x_em is None:
+        raise Exception("x_em should not be specified if alpha and beta are specified.")
+    kR_array = np.linspace(0,30,200)
+    M_array = multiple_scattering_window_function(kR_array,alpha,beta)
+    # Prepare figure
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    else:
+        fig = ax.figure
+    # Plot the window function
+    ax.plot(kR_array,M_array,**kwargs)
+    # Prettify plot
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    ax.set_xlim([np.min(kR_array),np.max(kR_array)])
+    ax.set_ylabel('$M(kR)$',fontsize=25)
+    ax.set_xlabel('$kR$',fontsize=25)
     # Return output
     return fig, ax
 

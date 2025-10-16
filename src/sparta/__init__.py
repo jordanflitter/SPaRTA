@@ -49,6 +49,8 @@ from .Lyman_alpha import(
     compute_Lya_cross_section,
 )
 from .plotting import(
+    plot_beta_distribution,
+    plot_window_function,
     plot_cross_section,
     plot_RMS,
     plot_Pearson_coefficient,
