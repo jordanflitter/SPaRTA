@@ -330,9 +330,9 @@ def set_inputs(cosmo_params=None,sim_params=None,**kwargs):
     kwargs_cosmo = {}
     kwargs_sim = {}
     for k, v in kwargs.items():
-        if hasattr(cosmo_params,k):
+        if k in cosmo_params._defaults_.keys():
            kwargs_cosmo[k] = v
-        elif hasattr(sim_params,k):
+        elif k in sim_params._defaults_.keys():
            kwargs_sim[k] = v
         else:
             raise KeyError(f"{k} is not a valid keyword argument in SPaRTA.")

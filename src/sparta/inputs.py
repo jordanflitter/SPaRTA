@@ -32,6 +32,7 @@ class INPUT_STRUCT():
                 setattr(self,k,v)
             else:
                 raise KeyError(f"{type(self)} has no attribute {k}.")
+        self.include_derived_parameters()
     
     def print(self):
         """
