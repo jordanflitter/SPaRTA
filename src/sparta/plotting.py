@@ -600,13 +600,13 @@ def plot_scatter_all_photons(
     ax.scatter(x_list,sim_data.y_list,**kwargs)
     # Prettify plot
     if sim_data.quantity == 'distance':
-        ax.set_ylabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
+        ax.set_ylabel('$y\\equiv r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
     elif sim_data.quantity == 'velocity':
         ax.set_ylabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
     ax.xaxis.set_tick_params(labelsize=20)
     ax.yaxis.set_tick_params(labelsize=20)
     if x_axis == 'distance':
-        ax.set_xlabel('$R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})/r_\\star(z_\\mathrm{abs})$',fontsize=25)
+        ax.set_xlabel('$x_\\mathrm{em}\\equiv R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})/R_*(z_\\mathrm{abs})$',fontsize=25)
     else:
         ax.set_xlabel('$z_\\mathrm{em}$',fontsize=25)
     if "label" in kwargs:
@@ -663,7 +663,7 @@ def plot_fit(
         ax.plot(x_array, beta_dist.pdf(x_array,alpha,beta),**kwargs)
         # Prettify plot
         ax.set_ylabel('Radial distribution',fontsize=25)
-        ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
+        ax.set_xlabel('$y\\equiv r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
     elif sim_data.quantity == 'velocity':
         ax.plot(x_array, norm_dist.pdf(x_array,mu,sigma), **kwargs)
         ax.set_ylabel('Velocity distribution',fontsize=25)
@@ -817,7 +817,7 @@ def plot_histogram(
         ax.bar(edges[:-1],f_array,width=np.diff(edges),**kwargs)
         # Prettify plot
         ax.set_ylabel('Radial distribution',fontsize=25)
-        ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
+        ax.set_xlabel('$y\\equiv r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
     elif histogram_data.quantity == 'velocity':
         # Normalize distribution
         v_array = histogram_data.y_bins # dimensionless
@@ -874,16 +874,19 @@ def plot_histogram_fit(
     # Find 1D data that corresponds to input z_em
     if not z_em == None:
         if histogram_data.quantity == 'distance':
-            f_array, x_array, (alpha, beta) = histogram_data.fit_histogram(z_em=z_em)
+            (alpha, beta), y_array = histogram_data.fit_histogram(z_em=z_em)
         else:
-            f_array, x_array, (mu, sigma) = histogram_data.fit_histogram(z_em=z_em)
+            (mu, sigma), y_array = histogram_data.fit_histogram(z_em=z_em)
     else:
         if histogram_data.quantity == 'distance':
-            f_array, x_array, (alpha, beta) = histogram_data.fit_histogram(x_em=x_em)
+            (alpha, beta), y_array = histogram_data.fit_histogram(x_em=x_em)
         else:
-            f_array, x_array, (mu, sigma) = histogram_data.fit_histogram(x_em=x_em)
+            (mu, sigma), y_array = histogram_data.fit_histogram(x_em=x_em)
     # Get more samples to draw nice functions
-    x_array_new = np.linspace(x_array[0],x_array[-1],1000)
+    if histogram_data.quantity == 'distance':
+        y_array_new = np.linspace(0,1,1000)
+    else:
+        y_array_new = np.linspace(y_array[0],y_array[-1],1000)
     # Prepare figure
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
@@ -891,12 +894,12 @@ def plot_histogram_fit(
         fig = ax.figure
     # Plot the analytical fit
     if histogram_data.quantity == 'distance':
-        ax.plot(x_array_new, beta_dist.pdf(x_array_new,alpha,beta),**kwargs)
+        ax.plot(y_array_new, beta_dist.pdf(y_array_new,alpha,beta),**kwargs)
         # Prettify plot
         ax.set_ylabel('Radial distribution',fontsize=25)
-        ax.set_xlabel('$r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
+        ax.set_xlabel('$y\\equiv r/R_\\mathrm{SL}(z_\\mathrm{abs},z_\\mathrm{em})$',fontsize=25)
     elif histogram_data.quantity == 'velocity':
-        ax.plot(x_array_new, norm_dist.pdf(x_array_new,mu,sigma), **kwargs)
+        ax.plot(y_array_new, norm_dist.pdf(y_array_new,mu,sigma), **kwargs)
         ax.set_ylabel('Velocity distribution',fontsize=25)
         ax.set_xlabel('$v_\\mathrm{rel}^{||}/c$',fontsize=25)
     ax.xaxis.set_tick_params(labelsize=20)

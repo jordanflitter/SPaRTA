@@ -477,9 +477,13 @@ class HISTOGRAM_DATA():
         
         Returns
         -------
-        f_array: numpy array
-            The normalized distribution.
-        x_array: numpy array
+        dist_params: tuple
+            The parameters of the fitted distibution. Depends on the quantity 
+            that is stored in the histogram data.
+            There are two options:
+                - 'distance': (alpha, beta) the parameters of the beta distribution.
+                - 'velocity': (mu, sigma) the parameters of the Gaussian distribution.
+        y_array: numpy array
             Depends on the quantity that is stored in the histogram data.
             There are two options:
                 - 'distance': the distance from the absorption point, normalized
@@ -488,12 +492,6 @@ class HISTOGRAM_DATA():
                 - 'velocity': the parallel component of the relative velocity
                               with respect to the absorption point, normalized
                               by c.
-        dist_params: tuple
-            The parameters of the fitted distibution. Depends on the quantity 
-            that is stored in the histogram data.
-            There are two options:
-                - 'distance': (alpha, beta) the parameters of the beta distribution.
-                - 'velocity': (mu, sigma) the parameters of the Gaussian distribution.
         """
         
         # Check input
@@ -512,38 +510,29 @@ class HISTOGRAM_DATA():
             x_em_arg = np.argmin(np.abs(self.x_bins-x_em))
         # Extract 1D distribution
         f_array = self.H_matrix[x_em_arg,:] # dimensionless
+        # Normalize distribution
+        y_array = self.y_bins # dimensionless
+        f_array /= intg.simpson(f_array, x=y_array) # dimensionless
+        # Compute mean and variance
+        mean = intg.simpson(y_array * f_array, x=y_array) # dimensionless
+        var = intg.simpson(y_array**2 * f_array, x=y_array) - mean**2
         if self.quantity == 'distance':
-            # Normalize distribution
-            r_array = self.y_bins # dimensionless
-            f_array /= intg.simpson(f_array, x=r_array) # dimensionless
             # Guess parameters for initialization.
-            alpha_initial = 1.+pow(x_em,1/2)
-            beta_initial = 1.+pow(x_em,-1/2)
+            alpha_initial = mean * ( (mean*(1.-mean))/var - 1.)
+            beta_initial = (1. - mean) * ( (mean*(1.-mean))/var - 1.)
             initial_guess = (alpha_initial,beta_initial)
-            bounds = ([1., 1.],[np.inf, np.inf])
             # Fit to a beta distribution
-            alpha, beta, = curve_fit(beta_dist.pdf,r_array,f_array,initial_guess,bounds=bounds)[0]
+            alpha, beta, = curve_fit(beta_dist.pdf,y_array,f_array,initial_guess)[0]
             dist_params = (alpha, beta)
         elif self.quantity == 'velocity':
-            # Normalize distribution
-            v_array = self.y_bins # dimensionless
-            f_array /= intg.simpson(f_array, x=v_array) # dimensionless
             # Guess parameters for initialization.
-            # We guess the Gaussian parameters from linear theory
-            # NOTE: in theory, the standard deviation of the relative velocity
-            #       should be sqrt[<v_abs^2> + <v_em^2> - 2*rho*<v_abs^2>^{1/2}*<v_em^2>^{1/2}].
-            #       Because rho that is computed in compute_2_point_correlation
-            #       smoothes the velocity field at a radius that corresponds to
-            #       the distance between the points at z_abs and z_em, we 
-            #       naively guess that the standard deviation is just <v_abs^2>^{1/2}
-            #       (that should be fixed in the future...)
-            mu_initial = 0.
-            sigma_initial = self.cosmo_params.compute_RMS(self.z_abs, self.sim_params.Delta_L)
+            mu_initial = mean
+            sigma_initial = np.sqrt(var)
             # Fit to normal distribution
-            mu, sigma = curve_fit(norm_dist.pdf,v_array, f_array,(mu_initial,sigma_initial))[0]
+            mu, sigma = curve_fit(norm_dist.pdf,y_array, f_array,(mu_initial,sigma_initial))[0]
             dist_params = (mu, sigma)
         # Return output
-        return f_array, self.y_bins, dist_params
+        return dist_params, y_array
     
     def plot_histogram_fit(
         self,
