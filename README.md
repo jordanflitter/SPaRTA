@@ -11,7 +11,7 @@ When simulating many photons, their statistics can be studied. This includes for
 ![Distributions](https://github.com/jordanflitter/SPaRTA/blob/main/images/Distributions.png)
 
 ## Installation
-The installation of SPaRTA is very easy. In your terminal application, type:
+The installation of `SPaRTA` is very easy. In your terminal application, type:
 ```
 git clone git@github.com:jordanflitter/SPaRTA.git
 ```
